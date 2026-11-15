@@ -546,6 +546,42 @@ const char *dex_file_superclass(const DexFile *dex, const char *class_desc)
     return NULL;
 }
 
+int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
+                     const char **class_desc, const char **name, const char **type)
+{
+    uint16_t class_idx;
+    uint16_t type_idx;
+    uint32_t name_idx;
+    const char *class_name;
+    const char *field_name;
+    const char *field_type;
+
+    if (dex == NULL || field_idx >= dex->field_ids_size) {
+        return -1;
+    }
+    if (read_u16(dex, dex->field_ids_off + field_idx * 8, &class_idx) != 0 ||
+        read_u16(dex, dex->field_ids_off + field_idx * 8 + 2, &type_idx) != 0 ||
+        read_u32(dex, dex->field_ids_off + field_idx * 8 + 4, &name_idx) != 0) {
+        return -1;
+    }
+    class_name = type_descriptor(dex, class_idx);
+    field_type = type_descriptor(dex, type_idx);
+    field_name = dex_string(dex, name_idx);
+    if (class_name == NULL || field_type == NULL || field_name == NULL) {
+        return -1;
+    }
+    if (class_desc != NULL) {
+        *class_desc = class_name;
+    }
+    if (name != NULL) {
+        *name = field_name;
+    }
+    if (type != NULL) {
+        *type = field_type;
+    }
+    return 0;
+}
+
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value)
 {
     if (dex == NULL || field_idx >= dex->field_ids_size || dex->field_has_int == NULL ||

@@ -1,4 +1,5 @@
 #include "framework.h"
+#include "ui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 
 struct Toast {
     uint32_t magic;
+    int32_t duration;
     char message[256];
 };
 
@@ -40,6 +42,8 @@ static int native_toast_make_text(Runtime *rt, const JValue *args, uint32_t argc
         return -1;
     }
     text = runtime_resource_string(rt, (uint32_t)args[1].i);
+    fprintf(stderr, "Toast.makeText id=%#x -> %s\n", (unsigned)args[1].i,
+            text != NULL ? text : "(missing)");
     if (text == NULL) {
         fprintf(stderr, "resource string %#x not found\n", (unsigned)args[1].i);
         return -1;
@@ -49,6 +53,7 @@ static int native_toast_make_text(Runtime *rt, const JValue *args, uint32_t argc
         return -1;
     }
     toast->magic = TOAST_MAGIC;
+    toast->duration = args[2].i;
     snprintf(toast->message, sizeof(toast->message), "%s", text);
     memset(result, 0, sizeof(*result));
     result->l = toast;
@@ -68,7 +73,11 @@ static int native_toast_show(Runtime *rt, const JValue *args, uint32_t argc, JVa
     if (toast->magic != TOAST_MAGIC) {
         return -1;
     }
-    puts(toast->message);
+    fprintf(stderr, "Toast.show: %s\n", toast->message);
+    if (ui_show_toast(toast->message, toast->duration) != 0) {
+        fprintf(stderr, "toast window failed\n");
+        return -1;
+    }
     return 0;
 }
 
@@ -151,6 +160,7 @@ int activity_thread_launch(Runtime *rt, LoadedApk *loaded)
         return -1;
     }
 
+    fprintf(stderr, "load resources.arsc\n");
     if (apk_read_entry(apk, "resources.arsc", &arsc, &arsc_size) == 0) {
         table = resource_table_open(arsc, arsc_size);
         if (table == NULL) {
@@ -169,6 +179,13 @@ int activity_thread_launch(Runtime *rt, LoadedApk *loaded)
         uint8_t *bytes = NULL;
         size_t size = 0;
         int loaded_dex;
+        char dex_name[32];
+        if (i == 0) {
+            snprintf(dex_name, sizeof(dex_name), "classes.dex");
+        } else {
+            snprintf(dex_name, sizeof(dex_name), "classes%zu.dex", i + 1);
+        }
+        fprintf(stderr, "load %s\n", dex_name);
         if (apk_read_dex(apk, i, &bytes, &size) != 0) {
             fprintf(stderr, "failed to read dex %zu\n", i);
             goto out;
@@ -184,6 +201,7 @@ int activity_thread_launch(Runtime *rt, LoadedApk *loaded)
     if (register_framework(rt) != 0 || class_descriptor(launcher, descriptor, sizeof(descriptor)) != 0) {
         goto out;
     }
+    fprintf(stderr, "call %s->onCreate(Landroid/os/Bundle;)V\n", descriptor);
     on_create = runtime_find_method(rt, descriptor, "onCreate", "(Landroid/os/Bundle;)V");
     if (on_create == NULL) {
         fprintf(stderr, "failed to find %s.onCreate\n", launcher);

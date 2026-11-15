@@ -1,6 +1,20 @@
 CC ?= cc
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude
-LDFLAGS := -ldl
+BUILD := build
+# Upstream SDL2 submodule, pinned to release-2.32.10.
+SDL_SRC := third_party/sdl2
+SDL_BUILD := $(BUILD)/sdl2
+SDL_LIB := $(SDL_BUILD)/libSDL2.a
+SDL_CFLAGS := -D_REENTRANT \
+	-I$(SDL_BUILD)/include-config-release/SDL2 \
+	-I$(SDL_BUILD)/include/SDL2 \
+	-I$(SDL_BUILD)/include
+
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -D_POSIX_C_SOURCE=200809L -Iinclude -Ithird_party/lvgl $(SDL_CFLAGS)
+LDFLAGS := -pthread -ldl -lm
+
+LVGL_DIR := third_party/lvgl
+LVGL_SRCS := $(shell find $(LVGL_DIR)/src -name '*.c')
+LVGL_CFLAGS := -std=c11 -O2 -w -I$(LVGL_DIR) -Iinclude $(SDL_CFLAGS) -DLV_CONF_INCLUDE_SIMPLE
 
 SRCS := \
 	src/main.c \
@@ -22,14 +36,14 @@ SRCS := \
 	src/runtime/mirror.c \
 	src/framework/activity_thread.c \
 	src/framework/loaded_apk.c \
+	src/ui/ui.c \
+	src/ui/toast_view.c \
 	src/abi/native_loader.c \
-	src/abi/jni_onload.c \
-	boot/native/log_jni.c \
-	boot/native/system_jni.c
+	src/abi/jni_onload.c
 
-BUILD := build
 APK ?= tests/apps/Hello.apk
 OBJS := $(SRCS:%.c=$(BUILD)/%.o)
+LVGL_OBJS := $(LVGL_SRCS:%.c=$(BUILD)/%.o)
 DEPS := $(OBJS:.o=.d)
 
 .PHONY: all clean run
@@ -39,12 +53,25 @@ all: $(BUILD)/mini-art
 run: $(BUILD)/mini-art
 	$(BUILD)/mini-art run $(APK)
 
-$(BUILD)/mini-art: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+$(SDL_LIB): $(SDL_SRC)/CMakeLists.txt
+	cmake -S $(SDL_SRC) -B $(SDL_BUILD) \
+		-DSDL_SHARED=OFF \
+		-DSDL_STATIC=ON \
+		-DSDL_TEST=OFF \
+		-DSDL_WAYLAND=OFF \
+		-DCMAKE_BUILD_TYPE=Release
+	cmake --build $(SDL_BUILD) --target SDL2-static -j
 
-$(BUILD)/%.o: %.c
+$(BUILD)/mini-art: $(OBJS) $(LVGL_OBJS) $(SDL_LIB)
+	$(CC) -o $@ $(OBJS) $(LVGL_OBJS) $(SDL_LIB) $(LDFLAGS)
+
+$(BUILD)/%.o: %.c $(SDL_LIB)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c -o $@ $<
+
+$(BUILD)/$(LVGL_DIR)/%.o: $(LVGL_DIR)/%.c include/lv_conf.h $(SDL_LIB)
+	@mkdir -p $(dir $@)
+	$(CC) $(LVGL_CFLAGS) -c -o $@ $<
 
 -include $(DEPS)
 

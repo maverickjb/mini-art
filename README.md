@@ -22,6 +22,5 @@ make run
 - `src/dex` reads `classes.dex` through `classesN.dex`
 - `src/verifier` checks a method before it runs
 - `src/runtime` is the class linker, interpreter, heap, and JNI
-- `boot/java` is the stub framework, compiled to `boot.dex` later
 - `src/framework` calls `Application` and `Activity` lifecycle methods
 - `src/abi` loads `lib/<abi>/*.so` and looks up `JNI_OnLoad`

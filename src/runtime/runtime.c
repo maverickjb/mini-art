@@ -28,7 +28,6 @@ struct ResolveCache {
 };
 
 struct Runtime {
-    char *boot_dex_path;
     ClassLinker *linker;
     Heap *heap;
     ArtThread *thread;
@@ -114,27 +113,18 @@ static ArtMethod *find_code_method(Runtime *rt, const char *class_desc, const ch
     return NULL;
 }
 
-Runtime *runtime_create(const char *boot_dex_path)
+Runtime *runtime_create(void)
 {
     Runtime *rt = calloc(1, sizeof(*rt));
     if (rt == NULL) {
         return NULL;
     }
 
-    if (boot_dex_path != NULL) {
-        rt->boot_dex_path = strdup(boot_dex_path);
-        if (rt->boot_dex_path == NULL) {
-            free(rt);
-            return NULL;
-        }
-    }
-
     rt->heap = heap_create();
     rt->thread = thread_attach();
     rt->linker = class_linker_create(rt);
     if (rt->heap == NULL || rt->thread == NULL || rt->linker == NULL ||
-        well_known_classes_init(rt) != 0 || log_jni_register(rt) != 0 ||
-        system_jni_register(rt) != 0) {
+        well_known_classes_init(rt) != 0) {
         runtime_destroy(rt);
         return NULL;
     }
@@ -174,7 +164,6 @@ void runtime_destroy(Runtime *rt)
     class_linker_destroy(rt->linker);
     thread_detach(rt->thread);
     heap_destroy(rt->heap);
-    free(rt->boot_dex_path);
     free(rt);
 }
 

@@ -15,12 +15,14 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    rt = runtime_create("boot/boot.dex");
+    fprintf(stderr, "create runtime\n");
+    rt = runtime_create();
     if (rt == NULL) {
         fprintf(stderr, "runtime_create failed\n");
         return 1;
     }
 
+    fprintf(stderr, "open %s\n", argv[2]);
     apk = apk_open(argv[2]);
     if (apk == NULL) {
         fprintf(stderr, "failed to open %s\n", argv[2]);
@@ -28,6 +30,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (apk_launcher_activity(apk) != NULL) {
+        fprintf(stderr, "launcher %s\n", apk_launcher_activity(apk));
+    }
     loaded = loaded_apk_create(rt, apk);
     if (loaded == NULL) {
         fprintf(stderr, "failed to load %s\n", argv[2]);

@@ -23,7 +23,7 @@ typedef union JValue {
 
 typedef int (*ArtNativeFn)(Runtime *rt, const JValue *args, uint32_t argc, JValue *result);
 
-Runtime *runtime_create(const char *boot_dex_path);
+Runtime *runtime_create(void);
 void runtime_destroy(Runtime *rt);
 
 int runtime_load_dex(Runtime *rt, const uint8_t *bytes, size_t size);
@@ -66,8 +66,5 @@ size_t mirror_object_header_size(void);
 size_t mirror_class_size(void);
 size_t mirror_string_size(void);
 size_t mirror_array_size(void);
-
-int log_jni_register(Runtime *rt);
-int system_jni_register(Runtime *rt);
 
 #endif

@@ -24,6 +24,8 @@ int dex_file_method_at(const DexFile *dex, uint32_t method_idx,
 int dex_file_find_method(const DexFile *dex, const char *class_desc,
                          const char *name, const char *proto, uint32_t *out_method_idx);
 const char *dex_file_superclass(const DexFile *dex, const char *class_desc);
+int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
+                     const char **class_desc, const char **name, const char **type);
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value);
 
 size_t multi_dex_count(const Apk *apk);
