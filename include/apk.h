@@ -18,6 +18,26 @@ int apk_read_entry(const Apk *apk, const char *name, uint8_t **out_bytes, size_t
 
 int binary_xml_find_launcher(const uint8_t *xml, size_t size, char *out, size_t out_cap);
 
+typedef struct XmlView XmlView;
+
+struct XmlView {
+    int kind;
+    int horizontal;
+    uint32_t id;
+    char *text;
+    XmlView *child;
+    XmlView *next;
+};
+
+enum {
+    XML_VIEW_CONTAINER = 0,
+    XML_VIEW_TEXT = 1,
+    XML_VIEW_BUTTON = 2
+};
+
+int binary_xml_views(const uint8_t *xml, size_t size, XmlView **out);
+void xml_view_free(XmlView *view);
+
 typedef struct ResourceTable ResourceTable;
 
 ResourceTable *resource_table_open(const uint8_t *arsc, size_t size);

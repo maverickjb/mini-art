@@ -27,6 +27,7 @@ SRCS := \
 	src/dex/multi_dex.c \
 	src/verifier/verifier.c \
 	src/runtime/runtime.c \
+	src/runtime/java_object.c \
 	src/runtime/class_linker.c \
 	src/runtime/interpreter.c \
 	src/runtime/heap.c \
@@ -41,7 +42,7 @@ SRCS := \
 	src/abi/native_loader.c \
 	src/abi/jni_onload.c
 
-APK ?= tests/apps/Hello.apk
+APK ?= tests/apk/Hello.apk
 OBJS := $(SRCS:%.c=$(BUILD)/%.o)
 LVGL_OBJS := $(LVGL_SRCS:%.c=$(BUILD)/%.o)
 DEPS := $(OBJS:.o=.d)

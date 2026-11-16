@@ -582,6 +582,22 @@ int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
     return 0;
 }
 
+const char *dex_file_string(const DexFile *dex, uint32_t string_idx)
+{
+    if (dex == NULL) {
+        return NULL;
+    }
+    return dex_string(dex, string_idx);
+}
+
+const char *dex_file_type(const DexFile *dex, uint32_t type_idx)
+{
+    if (dex == NULL) {
+        return NULL;
+    }
+    return type_descriptor(dex, type_idx);
+}
+
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value)
 {
     if (dex == NULL || field_idx >= dex->field_ids_size || dex->field_has_int == NULL ||

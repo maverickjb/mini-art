@@ -14,7 +14,13 @@ make
 make run
 ```
 
-`tests/apps/Hello.apk` is Hello World Toast 1.4.0, a one-activity hello-world APK (MIT, https://github.com/TheHelloWorldWriter/HelloWorldToast). `make run` launches its activity and prints the toast text. Larger fixtures go in `apps/`.
+`make run` launches `tests/apk/Hello.apk`, Hello World Toast 1.4.0 (MIT, https://github.com/TheHelloWorldWriter/HelloWorldToast). It shows the toast in a window and prints the text. Pass another fixture with `APK`:
+
+```sh
+make run APK=tests/apk/Calculator.apk
+```
+
+That opens the calculator and leaves the window up until it is closed. `tests/apk/Calculator.apk` is from https://github.com/Amey-Thakur/ANDROID-STUDIO-CALCULATOR. Test APKs live in `tests/apk/`.
 
 ## Layout
 
@@ -23,4 +29,5 @@ make run
 - `src/verifier` checks a method before it runs
 - `src/runtime` is the class linker, interpreter, heap, and JNI
 - `src/framework` calls `Application` and `Activity` lifecycle methods
+- `src/ui` draws toasts and inflated layouts with LVGL and SDL
 - `src/abi` loads `lib/<abi>/*.so` and looks up `JNI_OnLoad`

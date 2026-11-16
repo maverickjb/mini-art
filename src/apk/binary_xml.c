@@ -326,3 +326,149 @@ int binary_xml_find_launcher(const uint8_t *xml, size_t size, char *out, size_t 
     }
     return found ? 0 : -1;
 }
+
+static void view_append(XmlView *parent, XmlView *child)
+{
+    XmlView *tail;
+
+    if (parent->child == NULL) {
+        parent->child = child;
+        return;
+    }
+    for (tail = parent->child; tail->next != NULL; tail = tail->next) {
+    }
+    tail->next = child;
+}
+
+static XmlView *view_new(int kind)
+{
+    XmlView *view = calloc(1, sizeof(*view));
+    if (view != NULL) {
+        view->kind = kind;
+        view->text = strdup("");
+    }
+    return view;
+}
+
+void xml_view_free(XmlView *view)
+{
+    while (view != NULL) {
+        XmlView *next = view->next;
+        xml_view_free(view->child);
+        free(view->text);
+        free(view);
+        view = next;
+    }
+}
+
+int binary_xml_views(const uint8_t *xml, size_t size, XmlView **out)
+{
+    char **strings = NULL;
+    uint32_t string_count = 0;
+    size_t cursor;
+    XmlView *stack[64];
+    int stack_depth[64];
+    int depth = 0;
+    int top = 0;
+    XmlView *root = NULL;
+
+    if (out == NULL) {
+        return -1;
+    }
+    *out = NULL;
+    if (xml == NULL || size < 8 || ru16(xml) != 0x0003) {
+        return -1;
+    }
+    cursor = ru16(xml + 2);
+    if (cursor < 8 || cursor > size) {
+        return -1;
+    }
+
+    while (cursor + 8 <= size) {
+        uint16_t type = ru16(xml + cursor);
+        uint32_t chunk_size = ru32(xml + cursor + 4);
+        if (chunk_size < 8 || cursor + chunk_size > size) {
+            break;
+        }
+        if (type == 0x0001 && strings == NULL) {
+            if (read_string_pool(xml + cursor, chunk_size, &strings, &string_count) != 0) {
+                return -1;
+            }
+        } else if (type == 0x0102 && strings != NULL) {
+            uint32_t name_at;
+            uint32_t attr_at;
+            uint16_t attr_count;
+            uint16_t attr_size;
+            const char *element;
+            XmlView *view;
+            int kind;
+            uint16_t a;
+
+            depth++;
+            if (element_layout(xml + cursor, chunk_size, &name_at, &attr_at, &attr_count,
+                               &attr_size) != 0) {
+                cursor += chunk_size;
+                continue;
+            }
+            element = pool_get(strings, string_count, ru32(xml + cursor + name_at));
+            if (strcmp(element, "Button") == 0) {
+                kind = XML_VIEW_BUTTON;
+            } else if (strcmp(element, "TextView") == 0) {
+                kind = XML_VIEW_TEXT;
+            } else {
+                kind = XML_VIEW_CONTAINER;
+            }
+            view = view_new(kind);
+            if (view == NULL) {
+                xml_view_free(root);
+                return -1;
+            }
+            for (a = 0; a < attr_count; a++) {
+                const uint8_t *attr = xml + cursor + attr_at + (size_t)a * attr_size;
+                const char *attr_name = pool_get(strings, string_count, ru32(attr + 4));
+                uint8_t value_type = attr[15];
+                uint32_t data = ru32(attr + 16);
+
+                if (strcmp(attr_name, "id") == 0 && value_type == 0x01) {
+                    view->id = data;
+                } else if (strcmp(attr_name, "text") == 0 && value_type == 0x03) {
+                    free(view->text);
+                    view->text = strdup(pool_get(strings, string_count, data));
+                } else if (strcmp(attr_name, "orientation") == 0 && value_type == 0x10) {
+                    view->horizontal = data == 0;
+                }
+            }
+            if (root == NULL) {
+                root = view;
+            } else if (top > 0) {
+                view_append(stack[top - 1], view);
+            }
+            if (kind == XML_VIEW_CONTAINER && top < 64) {
+                stack[top] = view;
+                stack_depth[top] = depth;
+                top++;
+            }
+        } else if (type == 0x0103) {
+            if (top > 0 && stack_depth[top - 1] == depth) {
+                top--;
+            }
+            if (depth > 0) {
+                depth--;
+            }
+        }
+        cursor += chunk_size;
+    }
+
+    if (strings != NULL) {
+        uint32_t i;
+        for (i = 0; i < string_count; i++) {
+            free(strings[i]);
+        }
+        free(strings);
+    }
+    if (root == NULL) {
+        return -1;
+    }
+    *out = root;
+    return 0;
+}

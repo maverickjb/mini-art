@@ -1,7 +1,9 @@
 build/
+.vscode/
 
 *.o
 *.d
 *.a
+*.apk
 
 *.apk:Zone.Identifier

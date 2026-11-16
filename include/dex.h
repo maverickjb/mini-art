@@ -27,6 +27,8 @@ const char *dex_file_superclass(const DexFile *dex, const char *class_desc);
 int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
                      const char **class_desc, const char **name, const char **type);
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value);
+const char *dex_file_string(const DexFile *dex, uint32_t string_idx);
+const char *dex_file_type(const DexFile *dex, uint32_t type_idx);
 
 size_t multi_dex_count(const Apk *apk);
 int multi_dex_read(const Apk *apk, size_t index, uint8_t **out_bytes, size_t *out_size);

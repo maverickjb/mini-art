@@ -252,13 +252,56 @@ ArtMethod *runtime_find_method(Runtime *rt, const char *class_desc, const char *
     return find_code_method(rt, class_desc, name, proto);
 }
 
+/* A registered native stands in for that class even when the APK also
+ * contains a body, so framework stubs win over AndroidX. */
+static ArtMethod *resolve_on_class(Runtime *rt, const char *class_desc, const char *name,
+                                   const char *proto)
+{
+    const char *cursor;
+    int depth;
+
+    for (cursor = class_desc, depth = 0; cursor != NULL && depth < 16; depth++) {
+        ArtNativeFn fn = find_native(rt, cursor, name, proto);
+        ArtMethod *method;
+
+        if (fn != NULL) {
+            method = new_method(rt);
+            if (method == NULL) {
+                return NULL;
+            }
+            method->is_native = 1;
+            method->fn = fn;
+            return method;
+        }
+        method = find_code_method(rt, cursor, name, proto);
+        if (method != NULL) {
+            return method;
+        }
+        cursor = super_of(rt, cursor);
+    }
+    return NULL;
+}
+
+ArtMethod *runtime_resolve_virtual(Runtime *rt, const char *class_desc, const char *name,
+                                   const char *proto)
+{
+    ArtMethod *method;
+
+    if (rt == NULL || class_desc == NULL || name == NULL || proto == NULL) {
+        return NULL;
+    }
+    method = resolve_on_class(rt, class_desc, name, proto);
+    if (method == NULL) {
+        fprintf(stderr, "unresolved %s->%s%s\n", class_desc, name, proto);
+    }
+    return method;
+}
+
 ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx)
 {
     const char *class_desc;
     const char *name;
     const char *proto;
-    const char *cursor;
-    int depth;
     struct ResolveCache *cached;
     ArtMethod *method;
 
@@ -274,27 +317,7 @@ ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx
         return NULL;
     }
 
-    method = NULL;
-    cursor = class_desc;
-    for (depth = 0; cursor != NULL && depth < 16; depth++) {
-        ArtNativeFn fn;
-        method = find_code_method(rt, cursor, name, proto);
-        if (method != NULL) {
-            break;
-        }
-        fn = find_native(rt, cursor, name, proto);
-        if (fn != NULL) {
-            method = new_method(rt);
-            if (method == NULL) {
-                return NULL;
-            }
-            method->is_native = 1;
-            method->fn = fn;
-            break;
-        }
-        cursor = super_of(rt, cursor);
-        method = NULL;
-    }
+    method = resolve_on_class(rt, class_desc, name, proto);
     if (method == NULL) {
         fprintf(stderr, "unresolved %s->%s%s\n", class_desc, name, proto);
         return NULL;
