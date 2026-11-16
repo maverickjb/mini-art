@@ -297,6 +297,38 @@ ArtMethod *runtime_resolve_virtual(Runtime *rt, const char *class_desc, const ch
     return method;
 }
 
+ArtMethod *runtime_resolve_interface(Runtime *rt, const char *class_desc, const char *name,
+                                     const char *proto)
+{
+    return runtime_resolve_virtual(rt, class_desc, name, proto);
+}
+
+ArtMethod *runtime_resolve_super(Runtime *rt, const ArtMethod *caller, uint32_t method_idx)
+{
+    const char *caller_class = NULL;
+    const char *name = NULL;
+    const char *proto = NULL;
+    const char *super;
+    ArtMethod *method;
+    DexFile *dex;
+
+    if (rt == NULL || caller == NULL) {
+        return NULL;
+    }
+    dex = art_method_dex(caller);
+    if (dex_file_method_at(dex, art_method_id(caller), &caller_class, NULL, NULL) != 0 ||
+        dex_file_method_at(dex, method_idx, NULL, &name, &proto) != 0) {
+        return NULL;
+    }
+    super = super_of(rt, caller_class);
+    method = super != NULL ? resolve_on_class(rt, super, name, proto) : NULL;
+    if (method == NULL) {
+        fprintf(stderr, "unresolved super %s->%s%s\n", caller_class != NULL ? caller_class : "?",
+                name != NULL ? name : "?", proto != NULL ? proto : "");
+    }
+    return method;
+}
+
 ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx)
 {
     const char *class_desc;

@@ -40,6 +40,9 @@ ArtMethod *runtime_find_method(Runtime *rt, const char *class_desc,
 ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx);
 ArtMethod *runtime_resolve_virtual(Runtime *rt, const char *class_desc, const char *name,
                                    const char *proto);
+ArtMethod *runtime_resolve_super(Runtime *rt, const ArtMethod *caller, uint32_t method_idx);
+ArtMethod *runtime_resolve_interface(Runtime *rt, const char *class_desc, const char *name,
+                                     const char *proto);
 int runtime_invoke(Runtime *rt, ArtMethod *method, JValue *args, JValue *result);
 
 int art_method_is_native(const ArtMethod *method);

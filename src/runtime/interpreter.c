@@ -168,12 +168,15 @@ static const char *invoke_kind(uint8_t opcode)
     if (opcode == OP_INVOKE_STATIC) {
         return "invoke-static";
     }
+    if (opcode == OP_INVOKE_INTERFACE) {
+        return "invoke-interface";
+    }
     return "invoke";
 }
 
 /* 35c: the first code unit is already consumed. The receiver of an instance
  * call is argument 0 in that encoding, so it is copied with the other args. */
-static int execute_invoke(InterpreterFrame *frame, uint16_t instruction, int interface_call)
+static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
 {
     unsigned argc = instruction >> 12;
     unsigned sources[5];
@@ -205,17 +208,32 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction, int int
         args[i] = frame->registers[sources[i]];
     }
 
-    dex_file_method_at(art_method_dex(frame->method), method_idx, &class_desc, &name, &proto);
-    fprintf(stderr, "%s %s->%s%s\n", invoke_kind(instruction & 0xff), class_desc, name, proto);
+    unsigned opcode = instruction & 0xff;
 
-    if (interface_call) {
-        const char *receiver = java_object_class(argc > 0 ? args[0].l : NULL);
-        if (receiver == NULL) {
-            return -1;
-        }
-        callee = runtime_resolve_virtual(frame->runtime, receiver, name, proto);
-    } else {
+    dex_file_method_at(art_method_dex(frame->method), method_idx, &class_desc, &name, &proto);
+    fprintf(stderr, "%s %s->%s%s\n", invoke_kind((uint8_t)opcode), class_desc, name, proto);
+
+    switch (opcode) {
+    case OP_INVOKE_SUPER:
+        callee = runtime_resolve_super(frame->runtime, frame->method, method_idx);
+        break;
+    case OP_INVOKE_VIRTUAL: {
+        const char *receiver = java_object_class(args[0].l);
+        /* Framework objects such as Toast are not Java objects, so the
+         * method reference is the class to search. */
+        callee = receiver != NULL
+                     ? runtime_resolve_virtual(frame->runtime, receiver, name, proto)
+                     : runtime_resolve_method(frame->runtime, art_method_dex(frame->method),
+                                              method_idx);
+        break;
+    }
+    case OP_INVOKE_INTERFACE:
+        callee = runtime_resolve_interface(frame->runtime, java_object_class(args[0].l), name,
+                                           proto);
+        break;
+    default:
         callee = runtime_resolve_method(frame->runtime, art_method_dex(frame->method), method_idx);
+        break;
     }
     if (callee == NULL) {
         return -1;
@@ -663,10 +681,8 @@ static int execute_method(InterpreterFrame *frame)
         case OP_INVOKE_SUPER:
         case OP_INVOKE_DIRECT:
         case OP_INVOKE_STATIC:
-            failed = execute_invoke(frame, instruction, 0) != 0;
-            break;
         case OP_INVOKE_INTERFACE:
-            failed = execute_invoke(frame, instruction, 1) != 0;
+            failed = execute_invoke(frame, instruction) != 0;
             break;
         case OP_NEG_DOUBLE:
         case OP_INT_TO_CHAR:
