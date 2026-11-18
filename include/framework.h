@@ -12,5 +12,9 @@ const char *loaded_apk_launcher(const LoadedApk *loaded);
 const Apk *loaded_apk_apk(const LoadedApk *loaded);
 
 int activity_thread_launch(Runtime *rt, LoadedApk *loaded);
+int native_register_framework(Runtime *rt);
+void native_activity_prepare(const Apk *apk, Runtime *rt);
+int native_activity_content_open(void);
+void native_activity_clear(void);
 
 #endif

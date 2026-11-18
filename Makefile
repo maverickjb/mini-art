@@ -37,6 +37,11 @@ SRCS := \
 	src/runtime/mirror.c \
 	src/framework/activity_thread.c \
 	src/framework/loaded_apk.c \
+	src/framework/native/native_registry.c \
+	src/framework/native/native_activity.c \
+	src/framework/native/native_widget.c \
+	src/framework/native/native_string.c \
+	src/framework/native/native_math.c \
 	src/ui/ui.c \
 	src/ui/toast_view.c \
 	src/abi/native_loader.c \
