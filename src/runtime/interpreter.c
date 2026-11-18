@@ -147,7 +147,7 @@ static int execute_move_result(InterpreterFrame *frame, uint16_t instruction, ui
         value.j = frame->result.j;
         kind = "move-result-wide";
     } else {
-        value = frame->result;
+        value.l = frame->result.l;
         kind = "move-result-object";
     }
     fprintf(stderr, "%s v%u\n", kind, dest);
