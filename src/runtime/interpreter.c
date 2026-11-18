@@ -218,13 +218,19 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
         callee = runtime_resolve_super(frame->runtime, frame->method, method_idx);
         break;
     case OP_INVOKE_VIRTUAL: {
-        const char *receiver = java_object_class(args[0].l);
-        /* Framework objects such as Toast are not Java objects, so the
-         * method reference is the class to search. */
-        callee = receiver != NULL
-                     ? runtime_resolve_virtual(frame->runtime, receiver, name, proto)
-                     : runtime_resolve_method(frame->runtime, art_method_dex(frame->method),
-                                              method_idx);
+        void *object = args[0].l;
+
+        if (object == NULL) {
+            return -1;
+        }
+        if (java_object_check(object)) {
+            callee = runtime_resolve_virtual(frame->runtime, java_object_class(object), name,
+                                             proto);
+        } else {
+            /* Toast is not a JavaObject. Resolve the method reference. */
+            callee = runtime_resolve_method(frame->runtime, art_method_dex(frame->method),
+                                            method_idx);
+        }
         break;
     }
     case OP_INVOKE_INTERFACE:
