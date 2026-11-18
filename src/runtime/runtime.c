@@ -94,8 +94,13 @@ static ArtMethod *find_code_method(Runtime *rt, const char *class_desc, const ch
     ArtMethod *declared = class_linker_find_declared(klass, name, proto);
     size_t i;
 
-    if (declared != NULL || klass != NULL) {
-        return declared;
+    /* A declaration with no DEX body is native or abstract. The registered
+     * native was already considered. Keep walking for a real body. */
+    if (klass != NULL) {
+        if (declared != NULL && declared->code_off != 0) {
+            return declared;
+        }
+        return NULL;
     }
     for (i = 0; i < rt->dex_count; i++) {
         uint32_t method_idx;

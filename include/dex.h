@@ -24,9 +24,17 @@ int dex_file_method_at(const DexFile *dex, uint32_t method_idx,
 int dex_file_find_method(const DexFile *dex, const char *class_desc,
                          const char *name, const char *proto, uint32_t *out_method_idx);
 const char *dex_file_superclass(const DexFile *dex, const char *class_desc);
+
+struct DexDeclaredMethod {
+    uint32_t method_idx;
+    uint32_t access_flags;
+    uint32_t code_off;
+};
+
 int dex_file_visit_classes(const DexFile *dex,
                            int (*visit)(void *user, const char *descriptor, const char *superclass,
-                                        const uint32_t *method_ids, uint32_t method_count),
+                                        const struct DexDeclaredMethod *methods,
+                                        uint32_t method_count),
                            void *user);
 int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
                      const char **class_desc, const char **name, const char **type);

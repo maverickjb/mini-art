@@ -6,6 +6,8 @@
 struct ArtMethod {
     DexFile *dex;
     uint32_t method_idx;
+    uint32_t access_flags;
+    uint32_t code_off;
     const char *name;
     const char *proto;
     int is_native;

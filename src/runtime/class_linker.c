@@ -7,12 +7,19 @@
 
 #define CLASS_BUCKETS 1024
 
+enum {
+    CLASS_KIND_STUB = 0,
+    CLASS_KIND_DEX = 1
+};
+
 struct ArtClass {
     const char *descriptor;
     const char *superclass;
     ArtClass *super;
     ArtMethod *methods;
     uint32_t methods_count;
+    int kind;
+    int super_unknown;
     ArtClass *next;
 };
 
@@ -125,8 +132,13 @@ ArtMethod *class_linker_find_declared(const ArtClass *klass, const char *name, c
     return NULL;
 }
 
+/* Classes the runtime stubs by hand. NULL means the parent is not known yet.
+ * That is different from java.lang.Object, whose missing parent is the root. */
 static const char *framework_superclass(const char *descriptor)
 {
+    if (strcmp(descriptor, "Ljava/lang/Object;") == 0) {
+        return NULL;
+    }
     if (strcmp(descriptor, "Landroid/app/Activity;") == 0) {
         return "Landroid/content/Context;";
     }
@@ -154,11 +166,43 @@ static int insert_class(ClassLinker *linker, ArtClass *klass)
     return 0;
 }
 
+static int fill_methods(ArtClass *klass, DexFile *dex, const struct DexDeclaredMethod *methods,
+                        uint32_t method_count)
+{
+    ArtMethod *table = NULL;
+    uint32_t i;
+
+    if (method_count > 0) {
+        table = calloc(method_count, sizeof(*table));
+        if (table == NULL) {
+            return -1;
+        }
+        for (i = 0; i < method_count; i++) {
+            const char *name = NULL;
+            const char *proto = NULL;
+            if (dex_file_method_at(dex, methods[i].method_idx, NULL, &name, &proto) != 0) {
+                free(table);
+                return -1;
+            }
+            table[i].dex = dex;
+            table[i].method_idx = methods[i].method_idx;
+            table[i].access_flags = methods[i].access_flags;
+            table[i].code_off = methods[i].code_off;
+            table[i].name = name;
+            table[i].proto = proto;
+        }
+    }
+    free(klass->methods);
+    klass->methods = table;
+    klass->methods_count = method_count;
+    return 0;
+}
+
 static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const char *superclass,
-                              DexFile *dex, const uint32_t *method_ids, uint32_t method_count)
+                              DexFile *dex, const struct DexDeclaredMethod *methods,
+                              uint32_t method_count, int kind)
 {
     ArtClass *klass;
-    uint32_t i;
 
     klass = calloc(1, sizeof(*klass));
     if (klass == NULL) {
@@ -166,33 +210,36 @@ static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const
     }
     klass->descriptor = descriptor;
     klass->superclass = superclass;
-    if (method_count > 0) {
-        klass->methods = calloc(method_count, sizeof(*klass->methods));
-        if (klass->methods == NULL) {
-            free(klass);
-            return NULL;
-        }
+    klass->kind = kind;
+    if (fill_methods(klass, dex, methods, method_count) != 0) {
+        free(klass);
+        return NULL;
     }
-    for (i = 0; i < method_count; i++) {
-        const char *name = NULL;
-        const char *proto = NULL;
-        if (dex_file_method_at(dex, method_ids[i], NULL, &name, &proto) != 0) {
-            free(klass->methods);
-            free(klass);
-            return NULL;
-        }
-        klass->methods[i].dex = dex;
-        klass->methods[i].method_idx = method_ids[i];
-        klass->methods[i].name = name;
-        klass->methods[i].proto = proto;
-    }
-    klass->methods_count = method_count;
     if (insert_class(linker, klass) != 0) {
         free(klass->methods);
         free(klass);
         return NULL;
     }
     return klass;
+}
+
+static int hierarchy_cycle(const ClassLinker *linker)
+{
+    const ArtClass *klass;
+
+    for (klass = linker->all; klass != NULL; klass = klass->next) {
+        const ArtClass *slow = klass;
+        const ArtClass *fast = klass->super;
+
+        while (fast != NULL && fast->super != NULL) {
+            if (slow == fast) {
+                return 1;
+            }
+            slow = slow->super;
+            fast = fast->super->super;
+        }
+    }
+    return 0;
 }
 
 static int link_supers(ClassLinker *linker)
@@ -205,16 +252,21 @@ static int link_supers(ClassLinker *linker)
 
         for (klass = linker->all; klass != NULL; klass = klass->next) {
             ArtClass *parent;
+            const char *parent_name;
 
             if (klass->super != NULL || klass->superclass == NULL) {
                 continue;
             }
             parent = class_linker_find(linker, klass->superclass);
             if (parent == NULL) {
-                parent = create_class(linker, klass->superclass,
-                                      framework_superclass(klass->superclass), NULL, NULL, 0);
+                parent_name = framework_superclass(klass->superclass);
+                parent = create_class(linker, klass->superclass, parent_name, NULL, NULL, 0,
+                                      CLASS_KIND_STUB);
                 if (parent == NULL) {
                     return -1;
+                }
+                if (parent_name == NULL && strcmp(parent->descriptor, "Ljava/lang/Object;") != 0) {
+                    parent->super_unknown = 1;
                 }
                 progress = 1;
             }
@@ -224,22 +276,46 @@ static int link_supers(ClassLinker *linker)
             }
         }
         if (!progress) {
+            for (klass = linker->all; klass != NULL; klass = klass->next) {
+                if (klass->super_unknown) {
+                    continue;
+                }
+                if (klass->superclass != NULL && klass->super == NULL) {
+                    return -1;
+                }
+            }
+            if (hierarchy_cycle(linker)) {
+                return -1;
+            }
             return 0;
         }
     }
-    return 0;
+    return -1;
 }
 
 static int on_dex_class(void *user, const char *descriptor, const char *superclass,
-                        const uint32_t *method_ids, uint32_t method_count)
+                        const struct DexDeclaredMethod *methods, uint32_t method_count)
 {
     struct LoadState *state = user;
+    ArtClass *existing = class_linker_find(state->linker, descriptor);
 
-    if (class_linker_find(state->linker, descriptor) != NULL) {
+    if (existing != NULL && existing->kind == CLASS_KIND_DEX) {
         return 0;
     }
-    if (create_class(state->linker, descriptor, superclass, state->dex, method_ids, method_count) ==
-        NULL) {
+    if (existing != NULL) {
+        if (fill_methods(existing, state->dex, methods, method_count) != 0) {
+            state->failed = 1;
+            return -1;
+        }
+        existing->kind = CLASS_KIND_DEX;
+        existing->descriptor = descriptor;
+        existing->superclass = superclass;
+        existing->super = NULL;
+        existing->super_unknown = 0;
+        return 0;
+    }
+    if (create_class(state->linker, descriptor, superclass, state->dex, methods, method_count,
+                     CLASS_KIND_DEX) == NULL) {
         state->failed = 1;
         return -1;
     }

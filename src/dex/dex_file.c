@@ -522,11 +522,12 @@ int dex_file_find_method(const DexFile *dex, const char *class_desc,
 
 int dex_file_visit_classes(const DexFile *dex,
                            int (*visit)(void *user, const char *descriptor, const char *superclass,
-                                        const uint32_t *method_ids, uint32_t method_count),
+                                        const struct DexDeclaredMethod *methods,
+                                        uint32_t method_count),
                            void *user)
 {
     uint32_t i;
-    uint32_t *method_ids = NULL;
+    struct DexDeclaredMethod *methods = NULL;
     uint32_t method_cap = 0;
 
     if (dex == NULL || visit == NULL) {
@@ -552,17 +553,17 @@ int dex_file_visit_classes(const DexFile *dex,
         if (read_u32(dex, class_def_off, &class_idx) != 0 ||
             read_u32(dex, class_def_off + 8, &super_idx) != 0 ||
             read_u32(dex, class_def_off + 24, &class_data_off) != 0) {
-            free(method_ids);
+            free(methods);
             return -1;
         }
         descriptor = type_descriptor(dex, class_idx);
         if (descriptor == NULL) {
-            free(method_ids);
+            free(methods);
             return -1;
         }
         superclass = super_idx == 0xffffffffu ? NULL : type_descriptor(dex, super_idx);
         if (super_idx != 0xffffffffu && superclass == NULL) {
-            free(method_ids);
+            free(methods);
             return -1;
         }
         if (class_data_off != 0) {
@@ -571,14 +572,14 @@ int dex_file_visit_classes(const DexFile *dex,
                 read_uleb(dex, &cursor, &instance_fields) != 0 ||
                 read_uleb(dex, &cursor, &direct_methods) != 0 ||
                 read_uleb(dex, &cursor, &virtual_methods) != 0) {
-                free(method_ids);
+                free(methods);
                 return -1;
             }
             for (field = 0; field < static_fields + instance_fields; field++) {
                 uint32_t diff;
                 uint32_t access;
                 if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0) {
-                    free(method_ids);
+                    free(methods);
                     return -1;
                 }
             }
@@ -591,36 +592,37 @@ int dex_file_visit_classes(const DexFile *dex,
                 }
                 if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0 ||
                     read_uleb(dex, &cursor, &code_off) != 0) {
-                    free(method_ids);
+                    free(methods);
                     return -1;
                 }
                 method_idx += diff;
                 if (method_idx >= dex->method_ids_size) {
-                    free(method_ids);
+                    free(methods);
                     return -1;
-                }
-                if (code_off == 0) {
-                    continue;
                 }
                 if (method_count == method_cap) {
                     uint32_t grown_cap = method_cap == 0 ? 8 : method_cap * 2;
-                    uint32_t *grown = realloc(method_ids, grown_cap * sizeof(*grown));
+                    struct DexDeclaredMethod *grown =
+                        realloc(methods, grown_cap * sizeof(*grown));
                     if (grown == NULL) {
-                        free(method_ids);
+                        free(methods);
                         return -1;
                     }
-                    method_ids = grown;
+                    methods = grown;
                     method_cap = grown_cap;
                 }
-                method_ids[method_count++] = method_idx;
+                methods[method_count].method_idx = method_idx;
+                methods[method_count].access_flags = access;
+                methods[method_count].code_off = code_off;
+                method_count++;
             }
         }
-        if (visit(user, descriptor, superclass, method_ids, method_count) != 0) {
-            free(method_ids);
+        if (visit(user, descriptor, superclass, methods, method_count) != 0) {
+            free(methods);
             return -1;
         }
     }
-    free(method_ids);
+    free(methods);
     return 0;
 }
 
