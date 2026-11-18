@@ -1,16 +1,11 @@
 #include "runtime.h"
 
+#include "art_method.h"
+#include "class_linker.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-struct ArtMethod {
-    DexFile *dex;
-    uint32_t method_idx;
-    int is_native;
-    ArtNativeFn fn;
-    struct ArtMethod *next;
-};
 
 struct NativeEntry {
     char *class_desc;
@@ -55,13 +50,14 @@ static const char *framework_super(const char *desc)
 
 static const char *super_of(const Runtime *rt, const char *desc)
 {
-    size_t i;
+    ArtClass *klass = class_linker_find(rt->linker, desc);
+    ArtClass *super = class_linker_super(klass);
 
-    for (i = 0; i < rt->dex_count; i++) {
-        const char *super = dex_file_superclass(rt->dexes[i], desc);
-        if (super != NULL) {
-            return super;
-        }
+    if (super != NULL) {
+        return class_linker_descriptor(super);
+    }
+    if (klass != NULL) {
+        return NULL;
     }
     return framework_super(desc);
 }
@@ -94,8 +90,13 @@ static ArtNativeFn find_native(const Runtime *rt, const char *class_desc, const 
 static ArtMethod *find_code_method(Runtime *rt, const char *class_desc, const char *name,
                                    const char *proto)
 {
+    ArtClass *klass = class_linker_find(rt->linker, class_desc);
+    ArtMethod *declared = class_linker_find_declared(klass, name, proto);
     size_t i;
 
+    if (declared != NULL || klass != NULL) {
+        return declared;
+    }
     for (i = 0; i < rt->dex_count; i++) {
         uint32_t method_idx;
         ArtMethod *method;
@@ -157,11 +158,12 @@ void runtime_destroy(Runtime *rt)
         free(rt->resolved);
         rt->resolved = next;
     }
+    class_linker_destroy(rt->linker);
+    rt->linker = NULL;
     for (i = 0; i < rt->dex_count; i++) {
         dex_file_close(rt->dexes[i]);
     }
     free(rt->dexes);
-    class_linker_destroy(rt->linker);
     thread_detach(rt->thread);
     heap_destroy(rt->heap);
     free(rt);
@@ -186,6 +188,11 @@ int runtime_load_dex(Runtime *rt, const uint8_t *bytes, size_t size)
     }
     rt->dexes = grown;
     rt->dexes[rt->dex_count++] = dex;
+    if (class_linker_add_dex(rt->linker, dex) != 0) {
+        rt->dex_count--;
+        dex_file_close(dex);
+        return -1;
+    }
     return 0;
 }
 

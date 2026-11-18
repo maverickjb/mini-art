@@ -8,6 +8,7 @@
 
 typedef struct Runtime Runtime;
 typedef struct ClassLinker ClassLinker;
+typedef struct ArtClass ArtClass;
 typedef struct Heap Heap;
 typedef struct ArtThread ArtThread;
 typedef struct ArtMethod ArtMethod;
