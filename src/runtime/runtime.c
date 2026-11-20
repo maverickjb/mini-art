@@ -15,13 +15,6 @@ struct NativeEntry {
     struct NativeEntry *next;
 };
 
-struct ResolveCache {
-    DexFile *dex;
-    uint32_t method_idx;
-    ArtMethod *method;
-    struct ResolveCache *next;
-};
-
 struct Runtime {
     ClassLinker *linker;
     Heap *heap;
@@ -30,7 +23,6 @@ struct Runtime {
     size_t dex_count;
     struct ArtMethod *methods;
     struct NativeEntry *natives;
-    struct ResolveCache *resolved;
     const char *(*res_string)(void *cookie, uint32_t res_id);
     void *res_cookie;
 };
@@ -157,11 +149,6 @@ void runtime_destroy(Runtime *rt)
         free(rt->natives->proto);
         free(rt->natives);
         rt->natives = next;
-    }
-    while (rt->resolved != NULL) {
-        struct ResolveCache *next = rt->resolved->next;
-        free(rt->resolved);
-        rt->resolved = next;
     }
     class_linker_destroy(rt->linker);
     rt->linker = NULL;
@@ -353,16 +340,18 @@ ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx
     const char *class_desc;
     const char *name;
     const char *proto;
-    struct ResolveCache *cached;
+    ArtMethod **slot;
     ArtMethod *method;
 
     if (rt == NULL || dex == NULL) {
         return NULL;
     }
-    for (cached = rt->resolved; cached != NULL; cached = cached->next) {
-        if (cached->dex == dex && cached->method_idx == method_idx) {
-            return cached->method;
-        }
+    slot = dex_file_resolved_method(dex, method_idx);
+    if (slot == NULL) {
+        return NULL;
+    }
+    if (*slot != NULL) {
+        return *slot;
     }
     if (dex_file_method_at(dex, method_idx, &class_desc, &name, &proto) != 0) {
         return NULL;
@@ -373,15 +362,7 @@ ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx
         fprintf(stderr, "unresolved %s->%s%s\n", class_desc, name, proto);
         return NULL;
     }
-
-    cached = malloc(sizeof(*cached));
-    if (cached != NULL) {
-        cached->dex = dex;
-        cached->method_idx = method_idx;
-        cached->method = method;
-        cached->next = rt->resolved;
-        rt->resolved = cached;
-    }
+    *slot = method;
     return method;
 }
 

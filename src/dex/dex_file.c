@@ -25,6 +25,10 @@ struct DexFile {
     CodeItem *code;
     int *field_has_int;
     int32_t *field_int;
+    struct DexCache {
+        ArtMethod **resolved_methods;
+        size_t num_methods;
+    } cache;
 };
 
 static uint16_t ru16(const uint8_t *p)
@@ -327,6 +331,25 @@ static int scan_class(DexFile *dex, uint32_t class_def_off)
     return 0;
 }
 
+static int dex_cache_init(DexFile *dex)
+{
+    size_t count = dex->method_ids_size;
+
+    dex->cache.resolved_methods = calloc(count, sizeof(ArtMethod *));
+    if (count != 0 && dex->cache.resolved_methods == NULL) {
+        return -1;
+    }
+    dex->cache.num_methods = count;
+    return 0;
+}
+
+static void dex_cache_destroy(DexFile *dex)
+{
+    free(dex->cache.resolved_methods);
+    dex->cache.resolved_methods = NULL;
+    dex->cache.num_methods = 0;
+}
+
 DexFile *dex_file_open(const uint8_t *bytes, size_t size)
 {
     DexFile *dex;
@@ -395,6 +418,11 @@ DexFile *dex_file_open(const uint8_t *bytes, size_t size)
         }
     }
 
+    if (dex_cache_init(dex) != 0) {
+        dex_file_close(dex);
+        return NULL;
+    }
+
     for (i = 0; i < dex->class_defs_size; i++) {
         if (scan_class(dex, dex->class_defs_off + i * 32) != 0) {
             dex_file_close(dex);
@@ -421,8 +449,17 @@ void dex_file_close(DexFile *dex)
     free(dex->code);
     free(dex->field_has_int);
     free(dex->field_int);
+    dex_cache_destroy(dex);
     free(dex->bytes);
     free(dex);
+}
+
+ArtMethod **dex_file_resolved_method(DexFile *dex, uint32_t method_idx)
+{
+    if (dex == NULL || method_idx >= dex->cache.num_methods || dex->cache.resolved_methods == NULL) {
+        return NULL;
+    }
+    return &dex->cache.resolved_methods[method_idx];
 }
 
 size_t dex_file_class_count(const DexFile *dex)

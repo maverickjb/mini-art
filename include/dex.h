@@ -7,6 +7,7 @@
 typedef struct Apk Apk;
 typedef struct DexFile DexFile;
 typedef struct CodeItem CodeItem;
+typedef struct ArtMethod ArtMethod;
 
 DexFile *dex_file_open(const uint8_t *bytes, size_t size);
 void dex_file_close(DexFile *dex);
@@ -21,6 +22,8 @@ uint16_t code_item_ins(const CodeItem *code);
 
 int dex_file_method_at(const DexFile *dex, uint32_t method_idx,
                        const char **class_desc, const char **name, const char **proto);
+/* Slot for a direct or static resolution of method_idx. NULL when the index is outside this DEX. */
+ArtMethod **dex_file_resolved_method(DexFile *dex, uint32_t method_idx);
 int dex_file_find_method(const DexFile *dex, const char *class_desc,
                          const char *name, const char *proto, uint32_t *out_method_idx);
 const char *dex_file_superclass(const DexFile *dex, const char *class_desc);
