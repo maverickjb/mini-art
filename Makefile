@@ -14,7 +14,7 @@ LDFLAGS := -pthread -ldl -lm
 
 LVGL_DIR := third_party/lvgl
 LVGL_SRCS := $(shell find $(LVGL_DIR)/src -name '*.c')
-LVGL_CFLAGS := -std=c11 -O2 -w -I$(LVGL_DIR) -Iinclude $(SDL_CFLAGS) -DLV_CONF_INCLUDE_SIMPLE
+LVGL_CFLAGS := -std=c11 -O2 -w -D_POSIX_C_SOURCE=200809L -I$(LVGL_DIR) -Iinclude $(SDL_CFLAGS) -DLV_CONF_INCLUDE_SIMPLE
 
 SRCS := \
 	src/main.c \
@@ -61,6 +61,7 @@ run: $(BUILD)/mini-art
 
 $(SDL_LIB): $(SDL_SRC)/CMakeLists.txt
 	cmake -S $(SDL_SRC) -B $(SDL_BUILD) \
+		-DCMAKE_C_COMPILER=$(CC) \
 		-DSDL_SHARED=OFF \
 		-DSDL_STATIC=ON \
 		-DSDL_TEST=OFF \

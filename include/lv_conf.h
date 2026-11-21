@@ -2,6 +2,7 @@
 #define LV_CONF_H
 
 #define LV_USE_SDL 1
+
 #define LV_SDL_INCLUDE_PATH "SDL2/SDL.h"
 #define LV_SDL_AUTO_BACKEND 0
 #define LV_SDL_BACKEND LV_SDL_BACKEND_SW

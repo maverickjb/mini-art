@@ -8,6 +8,16 @@ A small C runtime that loads an Android APK and drives the launcher activity.
 make
 ```
 
+That writes `build/mini-art` for the host. On WSL the window needs `DISPLAY=:0`.
+
+Cross-compile the same sources for arm64 with `aarch64-linux-gnu-gcc`. `BUILD` keeps that tree separate from the host binary:
+
+```sh
+make BUILD=build-arm CC=aarch64-linux-gnu-gcc -j"$(nproc)"
+```
+
+The binary is `build-arm/mini-art`. SDL is built with the same `CC`. `make clean` removes `build/`; `make BUILD=build-arm clean` removes the arm64 tree.
+
 ## Run
 
 ```sh
@@ -28,6 +38,6 @@ That opens the calculator and leaves the window up until it is closed. `tests/ap
 - `src/dex` reads `classes.dex` through `classesN.dex`
 - `src/verifier` checks a method before it runs
 - `src/runtime` is the class linker, interpreter, heap, and JNI
-- `src/framework` calls `Application` and `Activity` lifecycle methods
+- `src/framework` launches the activity; `src/framework/native` is the framework method stubs
 - `src/ui` draws toasts and inflated layouts with LVGL and SDL
 - `src/abi` loads `lib/<abi>/*.so` and looks up `JNI_OnLoad`

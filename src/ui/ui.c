@@ -7,6 +7,32 @@
 #include <stdio.h>
 
 static lv_display_t *display;
+static lv_indev_t *pointer;
+
+static void attach_cursor(void)
+{
+    lv_obj_t *cursor;
+    SDL_Cursor *arrow;
+
+    if (pointer == NULL) {
+        return;
+    }
+    arrow = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+    if (arrow != NULL) {
+        SDL_SetCursor(arrow);
+    }
+    SDL_ShowCursor(SDL_ENABLE);
+    cursor = lv_obj_create(lv_screen_active());
+    lv_obj_set_size(cursor, 16, 16);
+    lv_obj_set_style_bg_color(cursor, lv_color_hex(0xffa500), 0);
+    lv_obj_set_style_bg_opa(cursor, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(cursor, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_border_color(cursor, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_border_width(cursor, 2, 0);
+    lv_obj_set_style_pad_all(cursor, 0, 0);
+    lv_indev_set_display(pointer, display);
+    lv_indev_set_cursor(pointer, cursor);
+}
 
 int ui_open_display(void)
 {
@@ -24,7 +50,8 @@ int ui_open_display(void)
     lv_sdl_window_set_title(display, "mini-art");
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x101014), 0);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, 0);
-    lv_sdl_mouse_create();
+    pointer = lv_sdl_mouse_create();
+    attach_cursor();
     window = lv_sdl_window_get_window(display);
     if (window != NULL) {
         SDL_SetWindowPosition(window, 80, 80);
