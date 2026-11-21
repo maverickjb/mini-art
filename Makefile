@@ -4,6 +4,32 @@ BUILD := build
 SDL_SRC := third_party/sdl2
 SDL_BUILD := $(BUILD)/sdl2
 SDL_LIB := $(SDL_BUILD)/libSDL2.a
+# Host /usr/include describes the machine that runs cmake, not the target.
+# Using it for an aarch64 build makes pthread_mutex_t 32 bytes while the
+# target libc writes 48, which corrupts the heap on the first mutex.
+CC_MACHINE := $(shell $(CC) -dumpmachine)
+HOST_MACHINE := $(shell cc -dumpmachine)
+# aarch64 X11 headers and libX11.so live here, separate from the host includes.
+AARCH64_SYSROOT := $(HOME)/aarch64-sysroot
+ifneq ($(CC_MACHINE),$(HOST_MACHINE))
+SDL_CMAKE_FLAGS := \
+	-DCMAKE_FIND_ROOT_PATH="$(AARCH64_SYSROOT);/usr/$(CC_MACHINE)" \
+	-DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+	-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+	-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+	-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+	-DSDL_OPENGL=OFF \
+	-DSDL_OPENGLES=OFF
+ifneq ($(wildcard $(AARCH64_SYSROOT)/usr/include/X11/Xlib.h),)
+SDL_CMAKE_FLAGS += -DSDL_X11=ON -DHAVE_XGENERICEVENT=1 -DCMAKE_C_FLAGS=-DNO_SHARED_MEMORY
+else
+SDL_CMAKE_FLAGS += -DSDL_X11=OFF
+endif
+SDL_CMAKE_ENV := PKG_CONFIG_LIBDIR=/usr/$(CC_MACHINE)/lib/pkgconfig PKG_CONFIG_PATH=
+else
+SDL_CMAKE_FLAGS :=
+SDL_CMAKE_ENV :=
+endif
 SDL_CFLAGS := -D_REENTRANT \
 	-I$(SDL_BUILD)/include-config-release/SDL2 \
 	-I$(SDL_BUILD)/include/SDL2 \
@@ -60,13 +86,14 @@ run: $(BUILD)/mini-art
 	$(BUILD)/mini-art run $(APK)
 
 $(SDL_LIB): $(SDL_SRC)/CMakeLists.txt
-	cmake -S $(SDL_SRC) -B $(SDL_BUILD) \
+	$(SDL_CMAKE_ENV) cmake -S $(SDL_SRC) -B $(SDL_BUILD) \
 		-DCMAKE_C_COMPILER=$(CC) \
 		-DSDL_SHARED=OFF \
 		-DSDL_STATIC=ON \
 		-DSDL_TEST=OFF \
 		-DSDL_WAYLAND=OFF \
-		-DCMAKE_BUILD_TYPE=Release
+		-DCMAKE_BUILD_TYPE=Release \
+		$(SDL_CMAKE_FLAGS)
 	cmake --build $(SDL_BUILD) --target SDL2-static -j
 
 $(BUILD)/mini-art: $(OBJS) $(LVGL_OBJS) $(SDL_LIB)

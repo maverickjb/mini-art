@@ -30,6 +30,10 @@ static void attach_cursor(void)
     lv_obj_set_style_border_color(cursor, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_border_width(cursor, 2, 0);
     lv_obj_set_style_pad_all(cursor, 0, 0);
+    /* LVGL pins the object's top-left to the pointer. Shift by half so the
+     * circle sits on the system cursor hotspot. */
+    lv_obj_set_style_translate_x(cursor, -8, 0);
+    lv_obj_set_style_translate_y(cursor, -8, 0);
     lv_indev_set_display(pointer, display);
     lv_indev_set_cursor(pointer, cursor);
 }
@@ -143,8 +147,10 @@ void *ui_content_begin(void)
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     window = lv_sdl_window_get_window(display);
+    /* SDL_SetWindowSize alone leaves the LVGL display at 360x640, so pointer
+     * events (window pixels) and the drawn cursor (display pixels) diverge. */
+    lv_display_set_resolution(display, 480, 800);
     if (window != NULL) {
-        SDL_SetWindowSize(window, 480, 800);
         SDL_SetWindowAlwaysOnTop(window, SDL_FALSE);
         lv_sdl_window_set_title(display, "Calculator");
     }
