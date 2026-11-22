@@ -345,6 +345,56 @@ static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const
     return klass;
 }
 
+int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, const char *name,
+                                   int32_t value)
+{
+    ArtClass *klass;
+    ArtField *fields;
+    JValue *values;
+    uint32_t count;
+    uint32_t i;
+
+    if (linker == NULL || descriptor == NULL || name == NULL) {
+        return -1;
+    }
+    klass = class_linker_find(linker, descriptor);
+    if (klass == NULL) {
+        klass = create_class(linker, descriptor, "Ljava/lang/Object;", NULL, NULL, 0, NULL, 0,
+                             CLASS_KIND_STUB);
+        if (klass == NULL) {
+            return -1;
+        }
+    }
+    for (i = 0; i < klass->static_count; i++) {
+        if (klass->static_fields[i].name != NULL && strcmp(klass->static_fields[i].name, name) == 0) {
+            klass->static_values[i].i = value;
+            return 0;
+        }
+    }
+    count = klass->static_count + 1;
+    fields = realloc(klass->static_fields, count * sizeof(*fields));
+    if (fields == NULL) {
+        return -1;
+    }
+    klass->static_fields = fields;
+    values = realloc(klass->static_values, count * sizeof(*values));
+    if (values == NULL) {
+        return -1;
+    }
+    memset(&fields[count - 1], 0, sizeof(fields[count - 1]));
+    memset(&values[count - 1], 0, sizeof(values[count - 1]));
+    fields[count - 1].declaring = klass;
+    fields[count - 1].name = name;
+    fields[count - 1].type = "I";
+    fields[count - 1].slot = count - 1;
+    fields[count - 1].kind = ART_FIELD_INT;
+    values[count - 1].i = value;
+    klass->static_fields = fields;
+    klass->static_values = values;
+    klass->static_count = count;
+    return 0;
+}
+
 static int hierarchy_cycle(const ClassLinker *linker)
 {
     const ArtClass *klass;

@@ -26,6 +26,8 @@ typedef int (*ArtNativeFn)(Runtime *rt, const JValue *args, uint32_t argc, JValu
 
 Runtime *runtime_create(void);
 void runtime_destroy(Runtime *rt);
+int runtime_define_static_int(Runtime *rt, const char *descriptor, const char *name,
+                              int32_t value);
 
 int runtime_load_dex(Runtime *rt, const uint8_t *bytes, size_t size);
 int runtime_register_native(Runtime *rt, const char *class_desc, const char *name,
@@ -40,6 +42,7 @@ ArtMethod *runtime_find_method(Runtime *rt, const char *class_desc,
                                const char *name, const char *proto);
 ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx);
 ArtField *runtime_resolve_field(Runtime *rt, DexFile *dex, uint32_t field_idx);
+int runtime_initialize_class(Runtime *rt, const char *descriptor);
 int runtime_get_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue *out);
 int runtime_set_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue value);
 ArtMethod *runtime_resolve_virtual(Runtime *rt, const char *class_desc, const char *name,

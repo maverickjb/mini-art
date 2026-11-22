@@ -21,6 +21,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "runtime_create failed\n");
         return 1;
     }
+    {
+        RuntimeConfig config = {.sdk_version = 28};
+        if (android_compat_init(rt, &config) != 0) {
+            fprintf(stderr, "android compat init failed\n");
+            runtime_destroy(rt);
+            return 1;
+        }
+    }
 
     fprintf(stderr, "open %s\n", argv[2]);
     apk = apk_open(argv[2]);

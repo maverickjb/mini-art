@@ -131,6 +131,14 @@ Runtime *runtime_create(void)
     return rt;
 }
 
+int runtime_define_static_int(Runtime *rt, const char *descriptor, const char *name, int32_t value)
+{
+    if (rt == NULL) {
+        return -1;
+    }
+    return class_linker_define_static_int(rt->linker, descriptor, name, value);
+}
+
 void runtime_destroy(Runtime *rt)
 {
     size_t i;
@@ -432,6 +440,20 @@ static int ensure_initialized(Runtime *rt, ArtClass *klass)
     }
     class_linker_finish_init(klass, 1);
     return 0;
+}
+
+int runtime_initialize_class(Runtime *rt, const char *descriptor)
+{
+    ArtClass *klass;
+
+    if (rt == NULL || descriptor == NULL) {
+        return -1;
+    }
+    klass = class_linker_find(rt->linker, descriptor);
+    if (klass == NULL) {
+        return 0;
+    }
+    return ensure_initialized(rt, klass);
 }
 
 static int static_access(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue *value,

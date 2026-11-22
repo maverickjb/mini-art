@@ -6,6 +6,12 @@
 
 typedef struct LoadedApk LoadedApk;
 
+typedef struct RuntimeConfig {
+    int sdk_version;
+} RuntimeConfig;
+
+int android_compat_init(Runtime *rt, const RuntimeConfig *config);
+
 LoadedApk *loaded_apk_create(Runtime *rt, Apk *apk);
 void loaded_apk_destroy(LoadedApk *loaded);
 const char *loaded_apk_launcher(const LoadedApk *loaded);

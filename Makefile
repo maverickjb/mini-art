@@ -62,6 +62,7 @@ SRCS := \
 	src/runtime/well_known_classes.c \
 	src/runtime/mirror.c \
 	src/framework/activity_thread.c \
+	src/framework/android_compat.c \
 	src/framework/loaded_apk.c \
 	src/framework/native/native_registry.c \
 	src/framework/native/native_activity.c \

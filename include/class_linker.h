@@ -9,6 +9,8 @@ ArtClass *class_linker_super(const ArtClass *klass);
 const char *class_linker_descriptor(const ArtClass *klass);
 ArtMethod *class_linker_find_declared(const ArtClass *klass, const char *name, const char *proto);
 ArtField *class_linker_find_static(ArtClass *klass, const char *name);
+int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, const char *name,
+                                   int32_t value);
 JValue *class_linker_static_value(ArtField *field);
 /* 0: not started. 1: initializing or initialized. -1: initialization failed. */
 int class_linker_init_status(const ArtClass *klass);
