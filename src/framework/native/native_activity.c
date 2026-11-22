@@ -32,6 +32,44 @@ static int native_request_window_feature(Runtime *rt, const JValue *args, uint32
     return 0;
 }
 
+static int native_get_window(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JavaObject *activity;
+    JavaObject *window;
+    JValue stored;
+
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    activity = args[0].l;
+    memset(&stored, 0, sizeof(stored));
+    java_object_get_field(activity, "window", &stored);
+    if (!java_object_check(stored.l)) {
+        window = java_object_new(rt, "Landroid/view/Window;");
+        if (window == NULL) {
+            return -1;
+        }
+        stored.l = window;
+        if (java_object_set_field(activity, "window", stored) != 0) {
+            return -1;
+        }
+    }
+    fprintf(stderr, "getWindow\n");
+    result->l = stored.l;
+    return 0;
+}
+
+static int native_window_add_flags(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2) {
+        return -1;
+    }
+    fprintf(stderr, "Window.addFlags %#x\n", (unsigned)args[1].i);
+    return 0;
+}
+
 static int native_get_application_context(Runtime *rt, const JValue *args, uint32_t argc,
                                           JValue *result)
 {
@@ -213,6 +251,8 @@ int native_register_activity(Runtime *rt)
         {"Landroid/app/Activity;", "<init>", "()V", native_return_void},
         {"Landroid/app/Activity;", "onCreate", "(Landroid/os/Bundle;)V", native_return_void},
         {"Landroid/app/Activity;", "requestWindowFeature", "(I)Z", native_request_window_feature},
+        {"Landroid/app/Activity;", "getWindow", "()Landroid/view/Window;", native_get_window},
+        {"Landroid/view/Window;", "addFlags", "(I)V", native_window_add_flags},
         {"Landroid/app/Activity;", "finish", "()V", native_return_void},
         {"Landroid/app/Activity;", "setContentView", "(I)V", native_set_content_view},
         {"Landroid/app/Activity;", "findViewById", "(I)Landroid/view/View;", native_find_view_by_id},
