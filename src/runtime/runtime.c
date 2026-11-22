@@ -1,5 +1,6 @@
 #include "runtime.h"
 
+#include "art_field.h"
 #include "art_method.h"
 #include "class_linker.h"
 
@@ -364,6 +365,117 @@ ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx
     }
     *slot = method;
     return method;
+}
+
+ArtField *runtime_resolve_field(Runtime *rt, DexFile *dex, uint32_t field_idx)
+{
+    const char *class_desc = NULL;
+    const char *name = NULL;
+    ArtField **slot;
+    ArtField *field;
+    ArtClass *klass;
+
+    if (rt == NULL || dex == NULL) {
+        return NULL;
+    }
+    slot = dex_file_resolved_field(dex, field_idx);
+    if (slot == NULL) {
+        return NULL;
+    }
+    if (*slot != NULL) {
+        return *slot;
+    }
+    if (dex_file_field_at(dex, field_idx, &class_desc, &name, NULL) != 0) {
+        return NULL;
+    }
+    for (klass = class_linker_find(rt->linker, class_desc); klass != NULL;
+         klass = class_linker_super(klass)) {
+        field = class_linker_find_static(klass, name);
+        if (field != NULL) {
+            *slot = field;
+            return field;
+        }
+    }
+    fprintf(stderr, "unresolved static %s->%s\n", class_desc, name);
+    return NULL;
+}
+
+static int ensure_initialized(Runtime *rt, ArtClass *klass)
+{
+    ArtClass *super;
+    ArtMethod *clinit;
+    int begin;
+    int status;
+
+    if (klass == NULL) {
+        return -1;
+    }
+    status = class_linker_init_status(klass);
+    if (status != 0) {
+        return status < 0 ? -1 : 0;
+    }
+    super = class_linker_super(klass);
+    if (super != NULL && ensure_initialized(rt, super) != 0) {
+        return -1;
+    }
+    begin = class_linker_begin_init(klass);
+    if (begin != 0) {
+        return begin < 0 ? -1 : 0;
+    }
+    clinit = class_linker_find_declared(klass, "<clinit>", "()V");
+    if (clinit != NULL && clinit->code_off != 0) {
+        if (interpreter_invoke(rt, clinit, NULL, NULL) != 0) {
+            fprintf(stderr, "failed to initialize %s\n", class_linker_descriptor(klass));
+            class_linker_finish_init(klass, 0);
+            return -1;
+        }
+    }
+    class_linker_finish_init(klass, 1);
+    return 0;
+}
+
+static int static_access(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue *value,
+                         int store)
+{
+    ArtField *field = runtime_resolve_field(rt, dex, field_idx);
+    JValue *slot;
+
+    if (field == NULL || field->kind != kind) {
+        return -1;
+    }
+    if (ensure_initialized(rt, field->declaring) != 0) {
+        return -1;
+    }
+    slot = class_linker_static_value(field);
+    if (slot == NULL) {
+        return -1;
+    }
+    if (store) {
+        *slot = *value;
+    } else {
+        *value = *slot;
+    }
+    return 0;
+}
+
+int runtime_get_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue *out)
+{
+    JValue value;
+
+    if (out == NULL) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    if (static_access(rt, dex, field_idx, kind, &value, 0) != 0) {
+        return -1;
+    }
+    *out = value;
+    return 0;
+}
+
+int runtime_set_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue value)
+{
+    return static_access(rt, dex, field_idx, kind, &value, 1);
 }
 
 int runtime_invoke(Runtime *rt, ArtMethod *method, JValue *args, JValue *result)

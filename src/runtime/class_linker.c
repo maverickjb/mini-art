@@ -1,5 +1,6 @@
 #include "class_linker.h"
 
+#include "art_field.h"
 #include "art_method.h"
 
 #include <stdlib.h>
@@ -12,12 +13,23 @@ enum {
     CLASS_KIND_DEX = 1
 };
 
+enum {
+    CLASS_INIT_NONE = 0,
+    CLASS_INIT_RUNNING = 1,
+    CLASS_INIT_DONE = 2,
+    CLASS_INIT_FAILED = 3
+};
+
 struct ArtClass {
     const char *descriptor;
     const char *superclass;
     ArtClass *super;
     ArtMethod *methods;
     uint32_t methods_count;
+    ArtField *static_fields;
+    JValue *static_values;
+    uint32_t static_count;
+    int init_state;
     int kind;
     int super_unknown;
     ArtClass *next;
@@ -67,6 +79,8 @@ void class_linker_destroy(ClassLinker *linker)
     while (linker->all != NULL) {
         ArtClass *next = linker->all->next;
         free(linker->all->methods);
+        free(linker->all->static_fields);
+        free(linker->all->static_values);
         free(linker->all);
         linker->all = next;
     }
@@ -130,6 +144,109 @@ ArtMethod *class_linker_find_declared(const ArtClass *klass, const char *name, c
         }
     }
     return NULL;
+}
+
+static void clear_statics(ArtClass *klass)
+{
+    free(klass->static_fields);
+    free(klass->static_values);
+    klass->static_fields = NULL;
+    klass->static_values = NULL;
+    klass->static_count = 0;
+}
+
+static int fill_statics(ArtClass *klass, const struct DexStaticField *statics, uint32_t count)
+{
+    ArtField *fields = NULL;
+    JValue *values = NULL;
+    uint32_t i;
+
+    if (count > 0) {
+        fields = calloc(count, sizeof(*fields));
+        values = calloc(count, sizeof(*values));
+        if (fields == NULL || values == NULL) {
+            free(fields);
+            free(values);
+            return -1;
+        }
+        for (i = 0; i < count; i++) {
+            fields[i].declaring = klass;
+            fields[i].name = statics[i].name;
+            fields[i].type = statics[i].type;
+            fields[i].slot = i;
+            if (statics[i].is_object) {
+                fields[i].kind = ART_FIELD_OBJECT;
+            } else if (statics[i].is_wide) {
+                fields[i].kind = ART_FIELD_WIDE;
+            } else {
+                fields[i].kind = ART_FIELD_INT;
+                values[i].i = statics[i].init;
+            }
+        }
+    }
+    clear_statics(klass);
+    klass->static_fields = fields;
+    klass->static_values = values;
+    klass->static_count = count;
+    return 0;
+}
+
+ArtField *class_linker_find_static(ArtClass *klass, const char *name)
+{
+    uint32_t i;
+
+    if (klass == NULL || name == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < klass->static_count; i++) {
+        if (klass->static_fields[i].name != NULL &&
+            strcmp(klass->static_fields[i].name, name) == 0) {
+            return &klass->static_fields[i];
+        }
+    }
+    return NULL;
+}
+
+JValue *class_linker_static_value(ArtField *field)
+{
+    if (field == NULL || field->declaring == NULL || field->slot >= field->declaring->static_count) {
+        return NULL;
+    }
+    return &field->declaring->static_values[field->slot];
+}
+
+int class_linker_init_status(const ArtClass *klass)
+{
+    if (klass == NULL || klass->init_state == CLASS_INIT_FAILED) {
+        return -1;
+    }
+    if (klass->init_state == CLASS_INIT_NONE) {
+        return 0;
+    }
+    return 1;
+}
+
+int class_linker_begin_init(ArtClass *klass)
+{
+    if (klass == NULL) {
+        return -1;
+    }
+    if (klass->init_state == CLASS_INIT_FAILED) {
+        return -1;
+    }
+    if (klass->init_state == CLASS_INIT_DONE || klass->init_state == CLASS_INIT_RUNNING) {
+        return 1;
+    }
+    klass->init_state = CLASS_INIT_RUNNING;
+    return 0;
+}
+
+void class_linker_finish_init(ArtClass *klass, int ok)
+{
+    if (klass == NULL || klass->init_state != CLASS_INIT_RUNNING) {
+        return;
+    }
+    klass->init_state = ok ? CLASS_INIT_DONE : CLASS_INIT_FAILED;
 }
 
 /* Classes the runtime stubs by hand. NULL means the parent is not known yet.
@@ -199,7 +316,8 @@ static int fill_methods(ArtClass *klass, DexFile *dex, const struct DexDeclaredM
 }
 
 static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const char *superclass,
-                              DexFile *dex, const struct DexDeclaredMethod *methods,
+                              DexFile *dex, const struct DexStaticField *statics,
+                              uint32_t static_count, const struct DexDeclaredMethod *methods,
                               uint32_t method_count, int kind)
 {
     ArtClass *klass;
@@ -211,11 +329,15 @@ static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const
     klass->descriptor = descriptor;
     klass->superclass = superclass;
     klass->kind = kind;
-    if (fill_methods(klass, dex, methods, method_count) != 0) {
+    if (fill_methods(klass, dex, methods, method_count) != 0 ||
+        fill_statics(klass, statics, static_count) != 0) {
+        clear_statics(klass);
+        free(klass->methods);
         free(klass);
         return NULL;
     }
     if (insert_class(linker, klass) != 0) {
+        clear_statics(klass);
         free(klass->methods);
         free(klass);
         return NULL;
@@ -260,8 +382,8 @@ static int link_supers(ClassLinker *linker)
             parent = class_linker_find(linker, klass->superclass);
             if (parent == NULL) {
                 parent_name = framework_superclass(klass->superclass);
-                parent = create_class(linker, klass->superclass, parent_name, NULL, NULL, 0,
-                                      CLASS_KIND_STUB);
+                parent = create_class(linker, klass->superclass, parent_name, NULL, NULL, 0, NULL,
+                                      0, CLASS_KIND_STUB);
                 if (parent == NULL) {
                     return -1;
                 }
@@ -294,6 +416,7 @@ static int link_supers(ClassLinker *linker)
 }
 
 static int on_dex_class(void *user, const char *descriptor, const char *superclass,
+                        const struct DexStaticField *statics, uint32_t static_count,
                         const struct DexDeclaredMethod *methods, uint32_t method_count)
 {
     struct LoadState *state = user;
@@ -303,7 +426,8 @@ static int on_dex_class(void *user, const char *descriptor, const char *supercla
         return 0;
     }
     if (existing != NULL) {
-        if (fill_methods(existing, state->dex, methods, method_count) != 0) {
+        if (fill_methods(existing, state->dex, methods, method_count) != 0 ||
+            fill_statics(existing, statics, static_count) != 0) {
             state->failed = 1;
             return -1;
         }
@@ -314,8 +438,8 @@ static int on_dex_class(void *user, const char *descriptor, const char *supercla
         existing->super_unknown = 0;
         return 0;
     }
-    if (create_class(state->linker, descriptor, superclass, state->dex, methods, method_count,
-                     CLASS_KIND_DEX) == NULL) {
+    if (create_class(state->linker, descriptor, superclass, state->dex, statics, static_count,
+                     methods, method_count, CLASS_KIND_DEX) == NULL) {
         state->failed = 1;
         return -1;
     }
@@ -357,6 +481,8 @@ static void rollback_to(ClassLinker *linker, ArtClass *previous_head)
     while (doomed != NULL) {
         ArtClass *next = doomed->next;
         free(doomed->methods);
+        free(doomed->static_fields);
+        free(doomed->static_values);
         free(doomed);
         doomed = next;
     }

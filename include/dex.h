@@ -8,6 +8,7 @@ typedef struct Apk Apk;
 typedef struct DexFile DexFile;
 typedef struct CodeItem CodeItem;
 typedef struct ArtMethod ArtMethod;
+typedef struct ArtField ArtField;
 
 DexFile *dex_file_open(const uint8_t *bytes, size_t size);
 void dex_file_close(DexFile *dex);
@@ -34,11 +35,21 @@ struct DexDeclaredMethod {
     uint32_t code_off;
 };
 
+struct DexStaticField {
+    const char *name;
+    const char *type;
+    int32_t init;
+    int is_object;
+    int is_wide;
+};
+
 int dex_file_visit_classes(const DexFile *dex,
                            int (*visit)(void *user, const char *descriptor, const char *superclass,
+                                        const struct DexStaticField *statics, uint32_t static_count,
                                         const struct DexDeclaredMethod *methods,
                                         uint32_t method_count),
                            void *user);
+ArtField **dex_file_resolved_field(DexFile *dex, uint32_t field_idx);
 int dex_file_field_at(const DexFile *dex, uint32_t field_idx,
                      const char **class_desc, const char **name, const char **type);
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value);

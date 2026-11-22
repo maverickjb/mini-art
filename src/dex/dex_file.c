@@ -28,6 +28,8 @@ struct DexFile {
     struct DexCache {
         ArtMethod **resolved_methods;
         size_t num_methods;
+        ArtField **resolved_fields;
+        size_t num_fields;
     } cache;
 };
 
@@ -333,13 +335,17 @@ static int scan_class(DexFile *dex, uint32_t class_def_off)
 
 static int dex_cache_init(DexFile *dex)
 {
-    size_t count = dex->method_ids_size;
+    size_t methods = dex->method_ids_size;
+    size_t fields = dex->field_ids_size;
 
-    dex->cache.resolved_methods = calloc(count, sizeof(ArtMethod *));
-    if (count != 0 && dex->cache.resolved_methods == NULL) {
+    dex->cache.resolved_methods = calloc(methods, sizeof(ArtMethod *));
+    dex->cache.resolved_fields = calloc(fields, sizeof(ArtField *));
+    if ((methods != 0 && dex->cache.resolved_methods == NULL) ||
+        (fields != 0 && dex->cache.resolved_fields == NULL)) {
         return -1;
     }
-    dex->cache.num_methods = count;
+    dex->cache.num_methods = methods;
+    dex->cache.num_fields = fields;
     return 0;
 }
 
@@ -348,6 +354,9 @@ static void dex_cache_destroy(DexFile *dex)
     free(dex->cache.resolved_methods);
     dex->cache.resolved_methods = NULL;
     dex->cache.num_methods = 0;
+    free(dex->cache.resolved_fields);
+    dex->cache.resolved_fields = NULL;
+    dex->cache.num_fields = 0;
 }
 
 DexFile *dex_file_open(const uint8_t *bytes, size_t size)
@@ -462,6 +471,14 @@ ArtMethod **dex_file_resolved_method(DexFile *dex, uint32_t method_idx)
     return &dex->cache.resolved_methods[method_idx];
 }
 
+ArtField **dex_file_resolved_field(DexFile *dex, uint32_t field_idx)
+{
+    if (dex == NULL || field_idx >= dex->cache.num_fields || dex->cache.resolved_fields == NULL) {
+        return NULL;
+    }
+    return &dex->cache.resolved_fields[field_idx];
+}
+
 size_t dex_file_class_count(const DexFile *dex)
 {
     if (dex == NULL) {
@@ -559,6 +576,7 @@ int dex_file_find_method(const DexFile *dex, const char *class_desc,
 
 int dex_file_visit_classes(const DexFile *dex,
                            int (*visit)(void *user, const char *descriptor, const char *superclass,
+                                        const struct DexStaticField *statics, uint32_t static_count,
                                         const struct DexDeclaredMethod *methods,
                                         uint32_t method_count),
                            void *user)
@@ -566,6 +584,8 @@ int dex_file_visit_classes(const DexFile *dex,
     uint32_t i;
     struct DexDeclaredMethod *methods = NULL;
     uint32_t method_cap = 0;
+    struct DexStaticField *statics = NULL;
+    uint32_t static_cap = 0;
 
     if (dex == NULL || visit == NULL) {
         return -1;
@@ -578,6 +598,8 @@ int dex_file_visit_classes(const DexFile *dex,
         const char *descriptor;
         const char *superclass;
         uint32_t method_count = 0;
+        uint32_t static_count = 0;
+        uint32_t field_idx = 0;
         size_t cursor;
         uint32_t static_fields;
         uint32_t instance_fields;
@@ -591,16 +613,19 @@ int dex_file_visit_classes(const DexFile *dex,
             read_u32(dex, class_def_off + 8, &super_idx) != 0 ||
             read_u32(dex, class_def_off + 24, &class_data_off) != 0) {
             free(methods);
+            free(statics);
             return -1;
         }
         descriptor = type_descriptor(dex, class_idx);
         if (descriptor == NULL) {
             free(methods);
+            free(statics);
             return -1;
         }
         superclass = super_idx == 0xffffffffu ? NULL : type_descriptor(dex, super_idx);
         if (super_idx != 0xffffffffu && superclass == NULL) {
             free(methods);
+            free(statics);
             return -1;
         }
         if (class_data_off != 0) {
@@ -610,13 +635,55 @@ int dex_file_visit_classes(const DexFile *dex,
                 read_uleb(dex, &cursor, &direct_methods) != 0 ||
                 read_uleb(dex, &cursor, &virtual_methods) != 0) {
                 free(methods);
+                free(statics);
                 return -1;
             }
-            for (field = 0; field < static_fields + instance_fields; field++) {
+            for (field = 0; field < static_fields; field++) {
+                uint32_t diff;
+                uint32_t access;
+                const char *field_name = NULL;
+                const char *field_type = NULL;
+                if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0) {
+                    free(methods);
+                    free(statics);
+                    return -1;
+                }
+                (void)access;
+                field_idx += diff;
+                if (field_idx >= dex->field_ids_size ||
+                    dex_file_field_at(dex, field_idx, NULL, &field_name, &field_type) != 0) {
+                    free(methods);
+                    free(statics);
+                    return -1;
+                }
+                if (static_count == static_cap) {
+                    uint32_t grown_cap = static_cap == 0 ? 8 : static_cap * 2;
+                    struct DexStaticField *grown = realloc(statics, grown_cap * sizeof(*grown));
+                    if (grown == NULL) {
+                        free(methods);
+                        free(statics);
+                        return -1;
+                    }
+                    statics = grown;
+                    static_cap = grown_cap;
+                }
+                statics[static_count].name = field_name;
+                statics[static_count].type = field_type;
+                statics[static_count].is_object = field_type[0] == 'L' || field_type[0] == '[';
+                statics[static_count].is_wide = field_type[0] == 'J' || field_type[0] == 'D';
+                statics[static_count].init = 0;
+                if (!statics[static_count].is_object && !statics[static_count].is_wide &&
+                    dex->field_has_int != NULL && dex->field_has_int[field_idx]) {
+                    statics[static_count].init = dex->field_int[field_idx];
+                }
+                static_count++;
+            }
+            for (field = 0; field < instance_fields; field++) {
                 uint32_t diff;
                 uint32_t access;
                 if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0) {
                     free(methods);
+                    free(statics);
                     return -1;
                 }
             }
@@ -630,11 +697,13 @@ int dex_file_visit_classes(const DexFile *dex,
                 if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0 ||
                     read_uleb(dex, &cursor, &code_off) != 0) {
                     free(methods);
+                    free(statics);
                     return -1;
                 }
                 method_idx += diff;
                 if (method_idx >= dex->method_ids_size) {
                     free(methods);
+                    free(statics);
                     return -1;
                 }
                 if (method_count == method_cap) {
@@ -643,6 +712,7 @@ int dex_file_visit_classes(const DexFile *dex,
                         realloc(methods, grown_cap * sizeof(*grown));
                     if (grown == NULL) {
                         free(methods);
+                        free(statics);
                         return -1;
                     }
                     methods = grown;
@@ -654,12 +724,14 @@ int dex_file_visit_classes(const DexFile *dex,
                 method_count++;
             }
         }
-        if (visit(user, descriptor, superclass, methods, method_count) != 0) {
+        if (visit(user, descriptor, superclass, statics, static_count, methods, method_count) != 0) {
             free(methods);
+            free(statics);
             return -1;
         }
     }
     free(methods);
+    free(statics);
     return 0;
 }
 

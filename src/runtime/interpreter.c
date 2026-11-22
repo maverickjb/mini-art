@@ -1,4 +1,5 @@
 #include "runtime.h"
+#include "art_field.h"
 #include "java_object.h"
 
 #include <math.h>
@@ -40,6 +41,9 @@ enum {
     OP_IPUT = 0x59,
     OP_IPUT_OBJECT = 0x5b,
     OP_SGET = 0x60,
+    OP_SGET_OBJECT = 0x62,
+    OP_SPUT = 0x67,
+    OP_SPUT_OBJECT = 0x69,
     OP_SPUT_BOOLEAN = 0x6a,
     OP_INVOKE_VIRTUAL = 0x6e,
     OP_INVOKE_SUPER = 0x6f,
@@ -114,23 +118,68 @@ static int execute_const_4(InterpreterFrame *frame, uint16_t instruction)
     return set_int_register(frame, reg, value);
 }
 
-/* Integer static fields only. The field index is the next code unit. */
-static int execute_sget(InterpreterFrame *frame, uint16_t instruction)
+static int read_register(const InterpreterFrame *frame, unsigned reg, JValue *out);
+
+static int static_field_names(InterpreterFrame *frame, uint16_t field_idx, const char **class_desc,
+                             const char **name)
+{
+    *class_desc = "?";
+    *name = "?";
+    return dex_file_field_at(art_method_dex(frame->method), field_idx, class_desc, name, NULL);
+}
+
+/* 21c. Reads the current value from the declaring class's static storage. */
+static int execute_sget(InterpreterFrame *frame, uint16_t instruction, int kind)
 {
     uint16_t field_idx;
     unsigned dest = instruction >> 8;
-    int32_t field_value;
-    const char *class_desc = "?";
-    const char *name = "?";
+    JValue value;
+    const char *class_desc;
+    const char *name;
+    const char *op = kind == ART_FIELD_OBJECT ? "sget-object" : "sget";
 
     if (fetch_u16(frame, &field_idx) != 0 ||
-        dex_file_field_int(art_method_dex(frame->method), field_idx, &field_value) != 0) {
-        fprintf(stderr, "unresolved static field\n");
+        static_field_names(frame, field_idx, &class_desc, &name) != 0) {
         return -1;
     }
-    dex_file_field_at(art_method_dex(frame->method), field_idx, &class_desc, &name, NULL);
-    fprintf(stderr, "sget v%u %s->%s = %#x\n", dest, class_desc, name, (unsigned)field_value);
-    return set_int_register(frame, dest, field_value);
+    memset(&value, 0, sizeof(value));
+    if (runtime_get_static(frame->runtime, art_method_dex(frame->method), field_idx, kind,
+                           &value) != 0) {
+        fprintf(stderr, "unresolved static field %s %s->%s\n", op, class_desc, name);
+        return -1;
+    }
+    if (kind == ART_FIELD_OBJECT) {
+        fprintf(stderr, "sget-object v%u %s->%s = %p\n", dest, class_desc, name, value.l);
+    } else {
+        fprintf(stderr, "sget v%u %s->%s = %#x\n", dest, class_desc, name, (unsigned)value.i);
+    }
+    return set_register(frame, dest, value);
+}
+
+static int execute_sput(InterpreterFrame *frame, uint16_t instruction, int kind)
+{
+    uint16_t field_idx;
+    unsigned src = instruction >> 8;
+    JValue value;
+    const char *class_desc;
+    const char *name;
+
+    if (fetch_u16(frame, &field_idx) != 0 ||
+        static_field_names(frame, field_idx, &class_desc, &name) != 0 ||
+        read_register(frame, src, &value) != 0) {
+        return -1;
+    }
+    if (kind == ART_FIELD_OBJECT) {
+        fprintf(stderr, "sput-object v%u %s->%s\n", src, class_desc, name);
+    } else {
+        fprintf(stderr, "sput v%u %s->%s\n", src, class_desc, name);
+    }
+    if (runtime_set_static(frame->runtime, art_method_dex(frame->method), field_idx, kind,
+                           value) != 0) {
+        fprintf(stderr, "unresolved static field %s->%s\n", class_desc, name);
+        return -1;
+    }
+    return 0;
 }
 
 static int execute_move_result(InterpreterFrame *frame, uint16_t instruction, uint8_t opcode)
@@ -678,7 +727,16 @@ static int execute_method(InterpreterFrame *frame)
             failed = execute_field(frame, instruction, 1, opcode == OP_IPUT_OBJECT) != 0;
             break;
         case OP_SGET:
-            failed = execute_sget(frame, instruction) != 0;
+            failed = execute_sget(frame, instruction, ART_FIELD_INT) != 0;
+            break;
+        case OP_SGET_OBJECT:
+            failed = execute_sget(frame, instruction, ART_FIELD_OBJECT) != 0;
+            break;
+        case OP_SPUT:
+            failed = execute_sput(frame, instruction, ART_FIELD_INT) != 0;
+            break;
+        case OP_SPUT_OBJECT:
+            failed = execute_sput(frame, instruction, ART_FIELD_OBJECT) != 0;
             break;
         case OP_SPUT_BOOLEAN:
             failed = fetch_u16(frame, &skipped) != 0;

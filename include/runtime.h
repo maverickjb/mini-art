@@ -39,6 +39,9 @@ const char *runtime_resource_string(const Runtime *rt, uint32_t res_id);
 ArtMethod *runtime_find_method(Runtime *rt, const char *class_desc,
                                const char *name, const char *proto);
 ArtMethod *runtime_resolve_method(Runtime *rt, DexFile *dex, uint32_t method_idx);
+ArtField *runtime_resolve_field(Runtime *rt, DexFile *dex, uint32_t field_idx);
+int runtime_get_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue *out);
+int runtime_set_static(Runtime *rt, DexFile *dex, uint32_t field_idx, int kind, JValue value);
 ArtMethod *runtime_resolve_virtual(Runtime *rt, const char *class_desc, const char *name,
                                    const char *proto);
 ArtMethod *runtime_resolve_super(Runtime *rt, const ArtMethod *caller, uint32_t method_idx);
