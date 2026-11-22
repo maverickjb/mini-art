@@ -20,6 +20,18 @@ int native_return_void(Runtime *rt, const JValue *args, uint32_t argc, JValue *r
     return 0;
 }
 
+static int native_request_window_feature(Runtime *rt, const JValue *args, uint32_t argc,
+                                          JValue *result)
+{
+    (void)rt;
+    if (argc < 2 || result == NULL) {
+        return -1;
+    }
+    fprintf(stderr, "requestWindowFeature %d\n", args[1].i);
+    result->i = 1;
+    return 0;
+}
+
 static int native_get_application_context(Runtime *rt, const JValue *args, uint32_t argc,
                                           JValue *result)
 {
@@ -200,6 +212,7 @@ int native_register_activity(Runtime *rt)
     static const struct NativeBinding rows[] = {
         {"Landroid/app/Activity;", "<init>", "()V", native_return_void},
         {"Landroid/app/Activity;", "onCreate", "(Landroid/os/Bundle;)V", native_return_void},
+        {"Landroid/app/Activity;", "requestWindowFeature", "(I)Z", native_request_window_feature},
         {"Landroid/app/Activity;", "finish", "()V", native_return_void},
         {"Landroid/app/Activity;", "setContentView", "(I)V", native_set_content_view},
         {"Landroid/app/Activity;", "findViewById", "(I)Landroid/view/View;", native_find_view_by_id},
