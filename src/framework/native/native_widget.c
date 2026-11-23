@@ -112,6 +112,17 @@ static int native_paint_init(Runtime *rt, const JValue *args, uint32_t argc, JVa
     return 0;
 }
 
+static int native_rectf_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 1 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    fprintf(stderr, "RectF.<init>\n");
+    return 0;
+}
+
 static int native_set_click_listener(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -137,6 +148,7 @@ int native_register_widget(Runtime *rt)
         {"Landroid/view/SurfaceView;", "<init>", "(Landroid/content/Context;)V",
          native_surface_view_init},
         {"Landroid/graphics/Paint;", "<init>", "(I)V", native_paint_init},
+        {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
