@@ -3,6 +3,9 @@
 
 #include "runtime.h"
 
+/* NULL means the parent is not known yet. java.lang.Object also returns NULL
+ * because its missing parent is the root. */
+const char *class_linker_framework_superclass(const char *descriptor);
 int class_linker_add_dex(ClassLinker *linker, DexFile *dex);
 ArtClass *class_linker_find(const ClassLinker *linker, const char *descriptor);
 ArtClass *class_linker_super(const ArtClass *klass);

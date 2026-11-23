@@ -249,9 +249,7 @@ void class_linker_finish_init(ArtClass *klass, int ok)
     klass->init_state = ok ? CLASS_INIT_DONE : CLASS_INIT_FAILED;
 }
 
-/* Classes the runtime stubs by hand. NULL means the parent is not known yet.
- * That is different from java.lang.Object, whose missing parent is the root. */
-static const char *framework_superclass(const char *descriptor)
+const char *class_linker_framework_superclass(const char *descriptor)
 {
     if (strcmp(descriptor, "Ljava/lang/Object;") == 0) {
         return NULL;
@@ -259,7 +257,11 @@ static const char *framework_superclass(const char *descriptor)
     if (strcmp(descriptor, "Landroid/app/Activity;") == 0) {
         return "Landroid/content/Context;";
     }
+    if (strcmp(descriptor, "Landroid/view/SurfaceView;") == 0) {
+        return "Landroid/view/View;";
+    }
     if (strcmp(descriptor, "Landroid/content/Context;") == 0 ||
+        strcmp(descriptor, "Landroid/view/View;") == 0 ||
         strcmp(descriptor, "Landroid/widget/Toast;") == 0 ||
         strcmp(descriptor, "Landroid/os/Bundle;") == 0) {
         return "Ljava/lang/Object;";
@@ -431,7 +433,7 @@ static int link_supers(ClassLinker *linker)
             }
             parent = class_linker_find(linker, klass->superclass);
             if (parent == NULL) {
-                parent_name = framework_superclass(klass->superclass);
+                parent_name = class_linker_framework_superclass(klass->superclass);
                 parent = create_class(linker, klass->superclass, parent_name, NULL, NULL, 0, NULL,
                                       0, CLASS_KIND_STUB);
                 if (parent == NULL) {

@@ -28,19 +28,6 @@ struct Runtime {
     void *res_cookie;
 };
 
-static const char *framework_super(const char *desc)
-{
-    if (strcmp(desc, "Landroid/app/Activity;") == 0) {
-        return "Landroid/content/Context;";
-    }
-    if (strcmp(desc, "Landroid/content/Context;") == 0 ||
-        strcmp(desc, "Landroid/widget/Toast;") == 0 ||
-        strcmp(desc, "Landroid/os/Bundle;") == 0) {
-        return "Ljava/lang/Object;";
-    }
-    return NULL;
-}
-
 static const char *super_of(const Runtime *rt, const char *desc)
 {
     ArtClass *klass = class_linker_find(rt->linker, desc);
@@ -52,7 +39,7 @@ static const char *super_of(const Runtime *rt, const char *desc)
     if (klass != NULL) {
         return NULL;
     }
-    return framework_super(desc);
+    return class_linker_framework_superclass(desc);
 }
 
 static ArtMethod *new_method(Runtime *rt)
