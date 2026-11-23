@@ -90,6 +90,17 @@ static int native_set_text(Runtime *rt, const JValue *args, uint32_t argc, JValu
     return 0;
 }
 
+static int native_surface_view_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    fprintf(stderr, "SurfaceView.<init>\n");
+    return 0;
+}
+
 static int native_set_click_listener(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -112,6 +123,8 @@ int native_register_widget(Runtime *rt)
         {"Landroid/widget/Button;", "getText", "()Ljava/lang/CharSequence;", native_get_text},
         {"Landroid/widget/Button;", "setOnClickListener", "(Landroid/view/View$OnClickListener;)V",
          native_set_click_listener},
+        {"Landroid/view/SurfaceView;", "<init>", "(Landroid/content/Context;)V",
+         native_surface_view_init},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
