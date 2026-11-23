@@ -21,6 +21,7 @@ JavaObject *native_new_string(Runtime *rt, const char *text);
 
 int native_register_activity(Runtime *rt);
 int native_register_widget(Runtime *rt);
+int native_register_media(Runtime *rt);
 int native_register_string(Runtime *rt);
 int native_register_math(Runtime *rt);
 

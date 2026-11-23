@@ -67,6 +67,7 @@ SRCS := \
 	src/framework/native/native_registry.c \
 	src/framework/native/native_activity.c \
 	src/framework/native/native_widget.c \
+	src/framework/native/native_media.c \
 	src/framework/native/native_string.c \
 	src/framework/native/native_math.c \
 	src/ui/ui.c \
