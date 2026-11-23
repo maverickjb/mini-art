@@ -84,6 +84,7 @@ enum {
     OP_INT_TO_BYTE = 0x8d,
     OP_INT_TO_CHAR = 0x8e,
     OP_INT_TO_SHORT = 0x8f,
+    OP_DIV_FLOAT = 0xa9,
     OP_ADD_DOUBLE = 0xab,
     OP_SUB_DOUBLE = 0xac,
     OP_MUL_DOUBLE = 0xad,
@@ -976,6 +977,29 @@ static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
+/* 23x. vAA = vBB / vCC. IEEE division, so a zero divisor yields infinity or NaN. */
+static int execute_div_float(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = instruction >> 8;
+    uint16_t regs;
+    unsigned left_reg;
+    unsigned right_reg;
+    JValue value;
+
+    if (fetch_u16(frame, &regs) != 0) {
+        return -1;
+    }
+    left_reg = regs & 0xff;
+    right_reg = regs >> 8;
+    if (dest >= frame->register_count || left_reg >= frame->register_count ||
+        right_reg >= frame->register_count) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.f = frame->registers[left_reg].f / frame->registers[right_reg].f;
+    return set_register(frame, dest, value);
+}
+
 static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
 {
     unsigned dest = instruction >> 8;
@@ -1253,6 +1277,9 @@ static int execute_method(InterpreterFrame *frame)
         case OP_DIV_DOUBLE_2ADDR:
         case OP_REM_DOUBLE_2ADDR:
             failed = execute_unop(frame, instruction) != 0;
+            break;
+        case OP_DIV_FLOAT:
+            failed = execute_div_float(frame, instruction) != 0;
             break;
         case OP_ADD_DOUBLE:
         case OP_SUB_DOUBLE:
