@@ -84,7 +84,11 @@ enum {
     OP_INT_TO_BYTE = 0x8d,
     OP_INT_TO_CHAR = 0x8e,
     OP_INT_TO_SHORT = 0x8f,
+    OP_ADD_FLOAT = 0xa6,
+    OP_SUB_FLOAT = 0xa7,
+    OP_MUL_FLOAT = 0xa8,
     OP_DIV_FLOAT = 0xa9,
+    OP_REM_FLOAT = 0xaa,
     OP_ADD_DOUBLE = 0xab,
     OP_SUB_DOUBLE = 0xac,
     OP_MUL_DOUBLE = 0xad,
@@ -98,6 +102,11 @@ enum {
     OP_MUL_DOUBLE_2ADDR = 0xcd,
     OP_DIV_DOUBLE_2ADDR = 0xce,
     OP_REM_DOUBLE_2ADDR = 0xcf,
+    OP_ADD_FLOAT_2ADDR = 0xc6,
+    OP_SUB_FLOAT_2ADDR = 0xc7,
+    OP_MUL_FLOAT_2ADDR = 0xc8,
+    OP_DIV_FLOAT_2ADDR = 0xc9,
+    OP_REM_FLOAT_2ADDR = 0xca,
     OP_ADD_INT_LIT8 = 0xd8
 };
 
@@ -977,27 +986,69 @@ static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
-/* 23x. vAA = vBB / vCC. IEEE division, so a zero divisor yields infinity or NaN. */
-static int execute_div_float(InterpreterFrame *frame, uint16_t instruction)
+typedef enum {
+    FLOAT_OP_ADD,
+    FLOAT_OP_SUB,
+    FLOAT_OP_MUL,
+    FLOAT_OP_DIV,
+    FLOAT_OP_REM
+} FloatOp;
+
+static int execute_float_op(InterpreterFrame *frame, unsigned dest, unsigned left, unsigned right,
+                            FloatOp op)
+{
+    JValue value;
+    float a;
+    float b;
+
+    if (dest >= frame->register_count || left >= frame->register_count ||
+        right >= frame->register_count) {
+        return -1;
+    }
+    a = frame->registers[left].f;
+    b = frame->registers[right].f;
+    memset(&value, 0, sizeof(value));
+    switch (op) {
+    case FLOAT_OP_ADD:
+        value.f = a + b;
+        break;
+    case FLOAT_OP_SUB:
+        value.f = a - b;
+        break;
+    case FLOAT_OP_MUL:
+        value.f = a * b;
+        break;
+    case FLOAT_OP_DIV:
+        value.f = a / b;
+        break;
+    case FLOAT_OP_REM:
+        value.f = fmodf(a, b);
+        break;
+    default:
+        return -1;
+    }
+    return set_register(frame, dest, value);
+}
+
+/* 23x. vAA = vBB <op> vCC. */
+static int execute_float_23x(InterpreterFrame *frame, uint16_t instruction, FloatOp op)
 {
     unsigned dest = instruction >> 8;
     uint16_t regs;
-    unsigned left_reg;
-    unsigned right_reg;
-    JValue value;
 
     if (fetch_u16(frame, &regs) != 0) {
         return -1;
     }
-    left_reg = regs & 0xff;
-    right_reg = regs >> 8;
-    if (dest >= frame->register_count || left_reg >= frame->register_count ||
-        right_reg >= frame->register_count) {
-        return -1;
-    }
-    memset(&value, 0, sizeof(value));
-    value.f = frame->registers[left_reg].f / frame->registers[right_reg].f;
-    return set_register(frame, dest, value);
+    return execute_float_op(frame, dest, regs & 0xff, regs >> 8, op);
+}
+
+/* 12x. vA = vA <op> vB. */
+static int execute_float_2addr(InterpreterFrame *frame, uint16_t instruction, FloatOp op)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+
+    return execute_float_op(frame, dest, dest, src, op);
 }
 
 static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
@@ -1278,8 +1329,35 @@ static int execute_method(InterpreterFrame *frame)
         case OP_REM_DOUBLE_2ADDR:
             failed = execute_unop(frame, instruction) != 0;
             break;
+        case OP_ADD_FLOAT:
+            failed = execute_float_23x(frame, instruction, FLOAT_OP_ADD) != 0;
+            break;
+        case OP_SUB_FLOAT:
+            failed = execute_float_23x(frame, instruction, FLOAT_OP_SUB) != 0;
+            break;
+        case OP_MUL_FLOAT:
+            failed = execute_float_23x(frame, instruction, FLOAT_OP_MUL) != 0;
+            break;
         case OP_DIV_FLOAT:
-            failed = execute_div_float(frame, instruction) != 0;
+            failed = execute_float_23x(frame, instruction, FLOAT_OP_DIV) != 0;
+            break;
+        case OP_REM_FLOAT:
+            failed = execute_float_23x(frame, instruction, FLOAT_OP_REM) != 0;
+            break;
+        case OP_ADD_FLOAT_2ADDR:
+            failed = execute_float_2addr(frame, instruction, FLOAT_OP_ADD) != 0;
+            break;
+        case OP_SUB_FLOAT_2ADDR:
+            failed = execute_float_2addr(frame, instruction, FLOAT_OP_SUB) != 0;
+            break;
+        case OP_MUL_FLOAT_2ADDR:
+            failed = execute_float_2addr(frame, instruction, FLOAT_OP_MUL) != 0;
+            break;
+        case OP_DIV_FLOAT_2ADDR:
+            failed = execute_float_2addr(frame, instruction, FLOAT_OP_DIV) != 0;
+            break;
+        case OP_REM_FLOAT_2ADDR:
+            failed = execute_float_2addr(frame, instruction, FLOAT_OP_REM) != 0;
             break;
         case OP_ADD_DOUBLE:
         case OP_SUB_DOUBLE:
