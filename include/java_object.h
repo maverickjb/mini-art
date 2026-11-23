@@ -8,6 +8,8 @@
 typedef struct JavaObject JavaObject;
 
 JavaObject *java_object_new(Runtime *rt, const char *class_desc);
+JavaObject *java_object_new_array(Runtime *rt, const char *class_desc, int32_t length);
+int java_object_array_data(const JavaObject *object, int32_t *length, int *width, void **data);
 int java_object_check(const void *value);
 const char *java_object_class(const JavaObject *object);
 void java_object_set_text(JavaObject *object, const char *text);

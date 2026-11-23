@@ -25,6 +25,8 @@ enum {
     OP_CONST_STRING = 0x1a,
     OP_CHECK_CAST = 0x1f,
     OP_NEW_INSTANCE = 0x22,
+    OP_NEW_ARRAY = 0x23,
+    OP_FILL_ARRAY_DATA = 0x26,
     OP_THROW = 0x27,
     OP_GOTO = 0x28,
     OP_GOTO_16 = 0x29,
@@ -430,6 +432,9 @@ static int execute_new_instance(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     desc = dex_file_type(art_method_dex(frame->method), type_idx);
+    if (desc == NULL || runtime_initialize_class(frame->runtime, desc) != 0) {
+        return -1;
+    }
     object = java_object_new(frame->runtime, desc);
     if (desc == NULL || object == NULL) {
         return -1;
@@ -437,6 +442,94 @@ static int execute_new_instance(InterpreterFrame *frame, uint16_t instruction)
     memset(&value, 0, sizeof(value));
     value.l = object;
     return set_register(frame, dest, value);
+}
+
+/* 22c: the length register and destination share the first code unit. */
+static int execute_new_array(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned regs = instruction >> 8;
+    unsigned dest = regs & 0x0f;
+    unsigned length_reg = regs >> 4;
+    uint16_t type_idx;
+    const char *desc;
+    int32_t length;
+    JavaObject *array;
+    JValue value;
+
+    if (fetch_u16(frame, &type_idx) != 0 || dest >= frame->register_count ||
+        length_reg >= frame->register_count) {
+        return -1;
+    }
+    desc = dex_file_type(art_method_dex(frame->method), type_idx);
+    if (desc == NULL || desc[0] != '[') {
+        return -1;
+    }
+    length = frame->registers[length_reg].i;
+    if (length < 0) {
+        return -1;
+    }
+    array = java_object_new_array(frame->runtime, desc, length);
+    if (array == NULL) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.l = array;
+    fprintf(stderr, "new-array v%u %s [%d]\n", dest, desc, length);
+    return set_register(frame, dest, value);
+}
+
+static int execute_fill_array_data(InterpreterFrame *frame, uint16_t instruction, uint32_t start)
+{
+    unsigned reg = instruction >> 8;
+    uint16_t lo;
+    uint16_t hi;
+    int32_t offset;
+    int64_t target;
+    const uint16_t *payload;
+    uint32_t payload_at;
+    int32_t length;
+    int width;
+    void *data;
+    uint32_t size;
+    uint32_t element_width;
+    uint64_t data_bytes;
+    uint64_t data_units;
+    JValue slot;
+
+    if (fetch_u16(frame, &lo) != 0 || fetch_u16(frame, &hi) != 0 ||
+        read_register(frame, reg, &slot) != 0 ||
+        java_object_array_data(slot.l, &length, &width, &data) != 0) {
+        return -1;
+    }
+    offset = (int32_t)((uint32_t)lo | ((uint32_t)hi << 16));
+    target = (int64_t)start + offset;
+    if (target < 0 || target > frame->insn_count) {
+        return -1;
+    }
+    payload_at = (uint32_t)target;
+    if ((payload_at & 1) != 0 || frame->insn_count - payload_at < 4) {
+        return -1;
+    }
+    payload = frame->insns + payload_at;
+    if (payload[0] != 0x0300) {
+        return -1;
+    }
+    element_width = payload[1];
+    size = (uint32_t)payload[2] | ((uint32_t)payload[3] << 16);
+    if (length < 0 || width <= 0 || element_width != (uint32_t)width || size > (uint32_t)length) {
+        return -1;
+    }
+    data_bytes = (uint64_t)size * element_width;
+    data_units = (data_bytes + 1) / 2;
+    if (data_units > frame->insn_count - payload_at - 4 || data_bytes > SIZE_MAX ||
+        (data_bytes > 0 && data == NULL)) {
+        return -1;
+    }
+    if (data_bytes > 0) {
+        memcpy(data, payload + 4, (size_t)data_bytes);
+    }
+    fprintf(stderr, "fill-array-data v%u %u x %u\n", reg, size, element_width);
+    return 0;
 }
 
 static int execute_check_cast(InterpreterFrame *frame)
@@ -682,6 +775,12 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_NEW_INSTANCE:
             failed = execute_new_instance(frame, instruction) != 0;
+            break;
+        case OP_NEW_ARRAY:
+            failed = execute_new_array(frame, instruction) != 0;
+            break;
+        case OP_FILL_ARRAY_DATA:
+            failed = execute_fill_array_data(frame, instruction, start) != 0;
             break;
         case OP_NOP:
             break;

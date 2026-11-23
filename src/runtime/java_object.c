@@ -18,6 +18,9 @@ struct JavaObject {
     struct FieldSlot *fields;
     JavaObject *listener;
     void *widget;
+    uint8_t *elements;
+    int32_t length;
+    int width;
     uint32_t id;
     int has_id;
 };
@@ -41,6 +44,73 @@ JavaObject *java_object_new(Runtime *rt, const char *class_desc)
         return NULL;
     }
     return object;
+}
+
+static int array_width(const char *desc)
+{
+    if (desc == NULL || desc[0] != '[') {
+        return 0;
+    }
+    switch (desc[1]) {
+    case 'B':
+    case 'Z':
+        return 1;
+    case 'S':
+    case 'C':
+        return 2;
+    case 'I':
+    case 'F':
+        return 4;
+    case 'J':
+    case 'D':
+        return 8;
+    default:
+        return (int)sizeof(void *);
+    }
+}
+
+JavaObject *java_object_new_array(Runtime *rt, const char *class_desc, int32_t length)
+{
+    JavaObject *object;
+    int width;
+
+    if (length < 0 || length > 1 << 20) {
+        return NULL;
+    }
+    width = array_width(class_desc);
+    if (width == 0) {
+        return NULL;
+    }
+    object = java_object_new(rt, class_desc);
+    if (object == NULL) {
+        return NULL;
+    }
+    object->width = width;
+    object->length = length;
+    if (length > 0) {
+        object->elements = calloc((size_t)length, (size_t)width);
+        if (object->elements == NULL) {
+            return NULL;
+        }
+    }
+    return object;
+}
+
+int java_object_array_data(const JavaObject *object, int32_t *length, int *width, void **data)
+{
+    if (!java_object_check(object) || object->width == 0) {
+        return -1;
+    }
+    if (length != NULL) {
+        *length = object->length;
+    }
+    if (width != NULL) {
+        *width = object->width;
+    }
+    if (data != NULL) {
+        *data = object->elements;
+    }
+    return 0;
 }
 
 int java_object_check(const void *value)
