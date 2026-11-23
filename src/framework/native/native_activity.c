@@ -70,6 +70,26 @@ static int native_window_add_flags(Runtime *rt, const JValue *args, uint32_t arg
     return 0;
 }
 
+static int native_get_shared_preferences(Runtime *rt, const JValue *args, uint32_t argc,
+                                          JValue *result)
+{
+    JavaObject *prefs;
+    const char *name;
+
+    if (argc < 3 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    name = native_arg_text(args, 1);
+    prefs = java_object_new(rt, "Landroid/content/SharedPreferences;");
+    if (prefs == NULL) {
+        return -1;
+    }
+    java_object_set_text(prefs, name);
+    fprintf(stderr, "getSharedPreferences %s mode=%d\n", name, args[2].i);
+    result->l = prefs;
+    return 0;
+}
+
 static int native_get_application_context(Runtime *rt, const JValue *args, uint32_t argc,
                                           JValue *result)
 {
@@ -264,6 +284,8 @@ int native_register_activity(Runtime *rt)
          native_find_view_by_id},
         {"Landroid/content/Context;", "getApplicationContext", "()Landroid/content/Context;",
          native_get_application_context},
+        {"Landroid/content/Context;", "getSharedPreferences",
+         "(Ljava/lang/String;I)Landroid/content/SharedPreferences;", native_get_shared_preferences},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
