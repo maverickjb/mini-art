@@ -22,6 +22,11 @@ enum {
     OP_CONST_4 = 0x12,
     OP_CONST_16 = 0x13,
     OP_CONST = 0x14,
+    OP_CONST_HIGH16 = 0x15,
+    OP_CONST_WIDE_16 = 0x16,
+    OP_CONST_WIDE_32 = 0x17,
+    OP_CONST_WIDE = 0x18,
+    OP_CONST_WIDE_HIGH16 = 0x19,
     OP_CONST_STRING = 0x1a,
     OP_CHECK_CAST = 0x1f,
     OP_NEW_INSTANCE = 0x22,
@@ -379,6 +384,91 @@ static int execute_const16(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     return set_int_register(frame, dest, sign16(immediate));
+}
+
+/* 21s. The sign-extended literal lives in the destination register's wide slot. */
+static int execute_const_wide16(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t immediate;
+    unsigned dest = instruction >> 8;
+    JValue value;
+
+    if (fetch_u16(frame, &immediate) != 0) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = (int64_t)sign16(immediate);
+    fprintf(stderr, "const-wide/16 v%u, #%lld\n", dest, (long long)value.j);
+    return set_register(frame, dest, value);
+}
+
+/* 21h. The 16-bit literal becomes the high half of a 32-bit register. */
+static int execute_const_high16(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t immediate;
+    unsigned dest = instruction >> 8;
+    int32_t value;
+
+    if (fetch_u16(frame, &immediate) != 0) {
+        return -1;
+    }
+    value = (int32_t)((uint32_t)immediate << 16);
+    fprintf(stderr, "const/high16 v%u, #%d\n", dest, value);
+    return set_int_register(frame, dest, value);
+}
+
+/* 31i. The 32-bit literal is sign-extended into the wide slot. */
+static int execute_const_wide32(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t lo;
+    uint16_t hi;
+    unsigned dest = instruction >> 8;
+    JValue value;
+
+    if (fetch_u16(frame, &lo) != 0 || fetch_u16(frame, &hi) != 0) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = (int64_t)(int32_t)((uint32_t)lo | ((uint32_t)hi << 16));
+    fprintf(stderr, "const-wide/32 v%u, #%lld\n", dest, (long long)value.j);
+    return set_register(frame, dest, value);
+}
+
+/* 51l. Four code units, little-endian, fill the wide slot. */
+static int execute_const_wide(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t part;
+    unsigned dest = instruction >> 8;
+    uint64_t bits = 0;
+    unsigned i;
+    JValue value;
+
+    for (i = 0; i < 4; i++) {
+        if (fetch_u16(frame, &part) != 0) {
+            return -1;
+        }
+        bits |= (uint64_t)part << (16 * i);
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = (int64_t)bits;
+    fprintf(stderr, "const-wide v%u, #%lld\n", dest, (long long)value.j);
+    return set_register(frame, dest, value);
+}
+
+/* 21h. The 16-bit literal becomes the high 16 bits of a 64-bit register. */
+static int execute_const_wide_high16(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t immediate;
+    unsigned dest = instruction >> 8;
+    JValue value;
+
+    if (fetch_u16(frame, &immediate) != 0) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = (int64_t)((uint64_t)immediate << 48);
+    fprintf(stderr, "const-wide/high16 v%u, #%lld\n", dest, (long long)value.j);
+    return set_register(frame, dest, value);
 }
 
 static int execute_const(InterpreterFrame *frame, uint16_t instruction)
@@ -763,6 +853,21 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_CONST_16:
             failed = execute_const16(frame, instruction) != 0;
+            break;
+        case OP_CONST_HIGH16:
+            failed = execute_const_high16(frame, instruction) != 0;
+            break;
+        case OP_CONST_WIDE_16:
+            failed = execute_const_wide16(frame, instruction) != 0;
+            break;
+        case OP_CONST_WIDE_32:
+            failed = execute_const_wide32(frame, instruction) != 0;
+            break;
+        case OP_CONST_WIDE:
+            failed = execute_const_wide(frame, instruction) != 0;
+            break;
+        case OP_CONST_WIDE_HIGH16:
+            failed = execute_const_wide_high16(frame, instruction) != 0;
             break;
         case OP_CONST:
             failed = execute_const(frame, instruction) != 0;
