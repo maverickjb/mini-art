@@ -129,6 +129,17 @@ static int native_surface_view_get_holder(Runtime *rt, const JValue *args, uint3
     return 0;
 }
 
+static int native_view_set_focusable(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    fprintf(stderr, "View.setFocusable %d\n", args[1].i != 0);
+    return 0;
+}
+
 static int native_surface_holder_add_callback(Runtime *rt, const JValue *args, uint32_t argc,
                                               JValue *result)
 {
@@ -196,6 +207,7 @@ int native_register_widget(Runtime *rt)
          native_surface_view_get_holder},
         {"Landroid/view/SurfaceHolder;", "addCallback", "(Landroid/view/SurfaceHolder$Callback;)V",
          native_surface_holder_add_callback},
+        {"Landroid/view/View;", "setFocusable", "(Z)V", native_view_set_focusable},
         {"Landroid/graphics/Paint;", "<init>", "(I)V", native_paint_init},
         {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
     };
