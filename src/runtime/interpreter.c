@@ -44,9 +44,19 @@ enum {
     OP_IF_EQZ = 0x38,
     OP_IF_NEZ = 0x39,
     OP_IGET = 0x52,
+    OP_IGET_WIDE = 0x53,
     OP_IGET_OBJECT = 0x54,
+    OP_IGET_BOOLEAN = 0x55,
+    OP_IGET_BYTE = 0x56,
+    OP_IGET_CHAR = 0x57,
+    OP_IGET_SHORT = 0x58,
     OP_IPUT = 0x59,
+    OP_IPUT_WIDE = 0x5a,
     OP_IPUT_OBJECT = 0x5b,
+    OP_IPUT_BOOLEAN = 0x5c,
+    OP_IPUT_BYTE = 0x5d,
+    OP_IPUT_CHAR = 0x5e,
+    OP_IPUT_SHORT = 0x5f,
     OP_SGET = 0x60,
     OP_SGET_OBJECT = 0x62,
     OP_SPUT = 0x67,
@@ -628,28 +638,126 @@ static int execute_check_cast(InterpreterFrame *frame)
     return fetch_u16(frame, &type_idx);
 }
 
-static int execute_field(InterpreterFrame *frame, uint16_t instruction, int store, int is_object)
+typedef enum {
+    FIELD_VALUE_NORMAL,
+    FIELD_VALUE_WIDE,
+    FIELD_VALUE_OBJECT,
+    FIELD_VALUE_BOOLEAN,
+    FIELD_VALUE_BYTE,
+    FIELD_VALUE_CHAR,
+    FIELD_VALUE_SHORT
+} FieldValueKind;
+
+static FieldValueKind field_value_kind(uint8_t opcode)
+{
+    switch (opcode) {
+    case OP_IGET_WIDE:
+    case OP_IPUT_WIDE:
+        return FIELD_VALUE_WIDE;
+    case OP_IGET_OBJECT:
+    case OP_IPUT_OBJECT:
+        return FIELD_VALUE_OBJECT;
+    case OP_IGET_BOOLEAN:
+    case OP_IPUT_BOOLEAN:
+        return FIELD_VALUE_BOOLEAN;
+    case OP_IGET_BYTE:
+    case OP_IPUT_BYTE:
+        return FIELD_VALUE_BYTE;
+    case OP_IGET_CHAR:
+    case OP_IPUT_CHAR:
+        return FIELD_VALUE_CHAR;
+    case OP_IGET_SHORT:
+    case OP_IPUT_SHORT:
+        return FIELD_VALUE_SHORT;
+    default:
+        return FIELD_VALUE_NORMAL;
+    }
+}
+
+static int field_is_store(uint8_t opcode)
+{
+    switch (opcode) {
+    case OP_IPUT:
+    case OP_IPUT_WIDE:
+    case OP_IPUT_OBJECT:
+    case OP_IPUT_BOOLEAN:
+    case OP_IPUT_BYTE:
+    case OP_IPUT_CHAR:
+    case OP_IPUT_SHORT:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The opcode chooses the access. The descriptor must agree. */
+static int field_type_matches(FieldValueKind kind, const char *type)
+{
+    if (type == NULL || type[0] == '\0') {
+        return 0;
+    }
+    switch (kind) {
+    case FIELD_VALUE_WIDE:
+        return type[0] == 'J' || type[0] == 'D';
+    case FIELD_VALUE_OBJECT:
+        return type[0] == 'L' || type[0] == '[';
+    case FIELD_VALUE_BOOLEAN:
+        return type[0] == 'Z';
+    case FIELD_VALUE_BYTE:
+        return type[0] == 'B';
+    case FIELD_VALUE_CHAR:
+        return type[0] == 'C';
+    case FIELD_VALUE_SHORT:
+        return type[0] == 'S';
+    default:
+        return type[0] == 'I' || type[0] == 'F';
+    }
+}
+
+static void normalize_field_value(FieldValueKind kind, JValue *value)
+{
+    switch (kind) {
+    case FIELD_VALUE_BOOLEAN:
+        value->i = value->i != 0;
+        break;
+    case FIELD_VALUE_BYTE:
+        value->i = (int8_t)value->i;
+        break;
+    case FIELD_VALUE_CHAR:
+        value->i = (uint16_t)value->i;
+        break;
+    case FIELD_VALUE_SHORT:
+        value->i = (int16_t)value->i;
+        break;
+    default:
+        break;
+    }
+}
+
+static int execute_field(InterpreterFrame *frame, uint16_t instruction, uint8_t opcode)
 {
     unsigned value_reg = (instruction >> 8) & 0x0f;
     unsigned object_reg = instruction >> 12;
     uint16_t field_idx;
     const char *name = NULL;
+    const char *type = NULL;
     JValue object_slot;
     JValue value;
     JavaObject *object;
+    FieldValueKind kind = field_value_kind(opcode);
 
-    (void)is_object;
     if (fetch_u16(frame, &field_idx) != 0 ||
-        dex_file_field_at(art_method_dex(frame->method), field_idx, NULL, &name, NULL) != 0 ||
-        read_register(frame, object_reg, &object_slot) != 0 ||
+        dex_file_field_at(art_method_dex(frame->method), field_idx, NULL, &name, &type) != 0 ||
+        !field_type_matches(kind, type) || read_register(frame, object_reg, &object_slot) != 0 ||
         !java_object_check(object_slot.l)) {
         return -1;
     }
     object = object_slot.l;
-    if (store) {
+    if (field_is_store(opcode)) {
         if (read_register(frame, value_reg, &value) != 0) {
             return -1;
         }
+        normalize_field_value(kind, &value);
         return java_object_set_field(object, name, value);
     }
     if (java_object_get_field(object, name, &value) != 0) {
@@ -923,12 +1031,20 @@ static int execute_method(InterpreterFrame *frame)
             failed = execute_if(frame, instruction, start) != 0;
             break;
         case OP_IGET:
+        case OP_IGET_WIDE:
         case OP_IGET_OBJECT:
-            failed = execute_field(frame, instruction, 0, opcode == OP_IGET_OBJECT) != 0;
-            break;
+        case OP_IGET_BOOLEAN:
+        case OP_IGET_BYTE:
+        case OP_IGET_CHAR:
+        case OP_IGET_SHORT:
         case OP_IPUT:
+        case OP_IPUT_WIDE:
         case OP_IPUT_OBJECT:
-            failed = execute_field(frame, instruction, 1, opcode == OP_IPUT_OBJECT) != 0;
+        case OP_IPUT_BOOLEAN:
+        case OP_IPUT_BYTE:
+        case OP_IPUT_CHAR:
+        case OP_IPUT_SHORT:
+            failed = execute_field(frame, instruction, opcode) != 0;
             break;
         case OP_SGET:
             failed = execute_sget(frame, instruction, ART_FIELD_INT) != 0;
