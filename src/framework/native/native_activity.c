@@ -90,6 +90,20 @@ static int native_get_shared_preferences(Runtime *rt, const JValue *args, uint32
     return 0;
 }
 
+static int native_prefs_get_int(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    const char *key;
+
+    (void)rt;
+    if (argc < 3 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    key = native_arg_text(args, 1);
+    result->i = args[2].i;
+    fprintf(stderr, "SharedPreferences.getInt %s default=%d\n", key, result->i);
+    return 0;
+}
+
 static int native_get_application_context(Runtime *rt, const JValue *args, uint32_t argc,
                                           JValue *result)
 {
@@ -286,6 +300,8 @@ int native_register_activity(Runtime *rt)
          native_get_application_context},
         {"Landroid/content/Context;", "getSharedPreferences",
          "(Ljava/lang/String;I)Landroid/content/SharedPreferences;", native_get_shared_preferences},
+        {"Landroid/content/SharedPreferences;", "getInt", "(Ljava/lang/String;I)I",
+         native_prefs_get_int},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
