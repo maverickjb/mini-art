@@ -101,6 +101,51 @@ static int native_surface_view_init(Runtime *rt, const JValue *args, uint32_t ar
     return 0;
 }
 
+static int native_surface_view_get_holder(Runtime *rt, const JValue *args, uint32_t argc,
+                                          JValue *result)
+{
+    JavaObject *view;
+    JavaObject *holder;
+    JValue stored;
+
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    view = args[0].l;
+    memset(&stored, 0, sizeof(stored));
+    java_object_get_field(view, "holder", &stored);
+    if (!java_object_check(stored.l)) {
+        holder = java_object_new(rt, "Landroid/view/SurfaceHolder;");
+        if (holder == NULL) {
+            return -1;
+        }
+        stored.l = holder;
+        if (java_object_set_field(view, "holder", stored) != 0) {
+            return -1;
+        }
+    }
+    fprintf(stderr, "SurfaceView.getHolder\n");
+    result->l = stored.l;
+    return 0;
+}
+
+static int native_surface_holder_add_callback(Runtime *rt, const JValue *args, uint32_t argc,
+                                              JValue *result)
+{
+    const char *callback_class;
+
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    java_object_set_listener(args[0].l, args[1].l);
+    callback_class = java_object_class(args[1].l);
+    fprintf(stderr, "SurfaceHolder.addCallback %s\n",
+            callback_class != NULL ? callback_class : "?");
+    return 0;
+}
+
 static int native_paint_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -147,6 +192,10 @@ int native_register_widget(Runtime *rt)
          native_set_click_listener},
         {"Landroid/view/SurfaceView;", "<init>", "(Landroid/content/Context;)V",
          native_surface_view_init},
+        {"Landroid/view/SurfaceView;", "getHolder", "()Landroid/view/SurfaceHolder;",
+         native_surface_view_get_holder},
+        {"Landroid/view/SurfaceHolder;", "addCallback", "(Landroid/view/SurfaceHolder$Callback;)V",
+         native_surface_holder_add_callback},
         {"Landroid/graphics/Paint;", "<init>", "(I)V", native_paint_init},
         {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
     };
