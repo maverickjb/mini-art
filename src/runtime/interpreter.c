@@ -3,6 +3,7 @@
 #include "java_object.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,6 +76,8 @@ enum {
     OP_DIV_DOUBLE = 0xae,
     OP_REM_DOUBLE = 0xaf,
     OP_MUL_INT_2ADDR = 0xb2,
+    OP_MUL_INT_LIT16 = 0xd2,
+    OP_DIV_INT_LIT16 = 0xd3,
     OP_ADD_DOUBLE_2ADDR = 0xcb,
     OP_SUB_DOUBLE_2ADDR = 0xcc,
     OP_MUL_DOUBLE_2ADDR = 0xcd,
@@ -900,6 +903,50 @@ static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
+/* 22s. vA = vB * sign-extended CCCC. The multiply wraps to 32 bits. */
+static int execute_mul_int_lit16(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t literal_bits;
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    int32_t literal;
+    int32_t value;
+
+    if (fetch_u16(frame, &literal_bits) != 0 || src >= frame->register_count ||
+        dest >= frame->register_count) {
+        return -1;
+    }
+    literal = sign16(literal_bits);
+    value = (int32_t)((uint32_t)frame->registers[src].i * (uint32_t)literal);
+    return set_int_register(frame, dest, value);
+}
+
+/* 22s. vA = vB / sign-extended CCCC. Division truncates toward zero. */
+static int execute_div_int_lit16(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint16_t literal_bits;
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    int32_t literal;
+    int32_t value;
+
+    if (fetch_u16(frame, &literal_bits) != 0 || src >= frame->register_count ||
+        dest >= frame->register_count) {
+        return -1;
+    }
+    literal = sign16(literal_bits);
+    if (literal == 0) {
+        return -1;
+    }
+    value = frame->registers[src].i;
+    if (value == INT32_MIN && literal == -1) {
+        value = INT32_MIN;
+    } else {
+        value /= literal;
+    }
+    return set_int_register(frame, dest, value);
+}
+
 static int execute_add_int_lit8(InterpreterFrame *frame, uint16_t instruction)
 {
     uint16_t word;
@@ -1084,6 +1131,12 @@ static int execute_method(InterpreterFrame *frame)
         case OP_DIV_DOUBLE:
         case OP_REM_DOUBLE:
             failed = execute_double_binop(frame, instruction) != 0;
+            break;
+        case OP_MUL_INT_LIT16:
+            failed = execute_mul_int_lit16(frame, instruction) != 0;
+            break;
+        case OP_DIV_INT_LIT16:
+            failed = execute_div_int_lit16(frame, instruction) != 0;
             break;
         case OP_ADD_INT_LIT8:
             failed = execute_add_int_lit8(frame, instruction) != 0;
