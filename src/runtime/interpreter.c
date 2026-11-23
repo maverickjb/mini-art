@@ -69,7 +69,21 @@ enum {
     OP_INVOKE_STATIC = 0x71,
     OP_INVOKE_INTERFACE = 0x72,
     OP_NEG_DOUBLE = 0x80,
+    OP_INT_TO_LONG = 0x81,
+    OP_INT_TO_FLOAT = 0x82,
+    OP_INT_TO_DOUBLE = 0x83,
+    OP_LONG_TO_INT = 0x84,
+    OP_LONG_TO_FLOAT = 0x85,
+    OP_LONG_TO_DOUBLE = 0x86,
+    OP_FLOAT_TO_INT = 0x87,
+    OP_FLOAT_TO_LONG = 0x88,
+    OP_FLOAT_TO_DOUBLE = 0x89,
+    OP_DOUBLE_TO_INT = 0x8a,
+    OP_DOUBLE_TO_LONG = 0x8b,
+    OP_DOUBLE_TO_FLOAT = 0x8c,
+    OP_INT_TO_BYTE = 0x8d,
     OP_INT_TO_CHAR = 0x8e,
+    OP_INT_TO_SHORT = 0x8f,
     OP_ADD_DOUBLE = 0xab,
     OP_SUB_DOUBLE = 0xac,
     OP_MUL_DOUBLE = 0xad,
@@ -820,6 +834,107 @@ static int execute_if(InterpreterFrame *frame, uint16_t instruction, uint32_t st
     return 0;
 }
 
+/* Java narrowing: NaN becomes 0, and values outside the range saturate. */
+static int32_t java_to_int32(double value)
+{
+    if (isnan(value)) {
+        return 0;
+    }
+    if (value >= 0x1p31) {
+        return INT32_MAX;
+    }
+    if (value < (double)INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int32_t)value;
+}
+
+static int64_t java_to_int64(double value)
+{
+    if (isnan(value)) {
+        return 0;
+    }
+    if (value >= 0x1p63) {
+        return INT64_MAX;
+    }
+    if (value < (double)INT64_MIN) {
+        return INT64_MIN;
+    }
+    return (int64_t)value;
+}
+
+/* 12x conversions. A long or double result stays in vA. */
+static int execute_convert(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    JValue value;
+    uint8_t opcode = instruction & 0xff;
+    int32_t as_int;
+    int64_t as_long;
+    float as_float;
+    double as_double;
+
+    if (read_register(frame, src, &value) != 0) {
+        return -1;
+    }
+    as_int = value.i;
+    as_long = value.j;
+    as_float = value.f;
+    as_double = value.d;
+    memset(&value, 0, sizeof(value));
+    switch (opcode) {
+    case OP_INT_TO_LONG:
+        value.j = as_int;
+        break;
+    case OP_INT_TO_FLOAT:
+        value.f = (float)as_int;
+        break;
+    case OP_INT_TO_DOUBLE:
+        value.d = as_int;
+        break;
+    case OP_LONG_TO_INT:
+        value.i = (int32_t)(uint32_t)as_long;
+        break;
+    case OP_LONG_TO_FLOAT:
+        value.f = (float)as_long;
+        break;
+    case OP_LONG_TO_DOUBLE:
+        value.d = (double)as_long;
+        break;
+    case OP_FLOAT_TO_INT:
+        value.i = java_to_int32(as_float);
+        break;
+    case OP_FLOAT_TO_LONG:
+        value.j = java_to_int64(as_float);
+        break;
+    case OP_FLOAT_TO_DOUBLE:
+        value.d = as_float;
+        break;
+    case OP_DOUBLE_TO_INT:
+        value.i = java_to_int32(as_double);
+        break;
+    case OP_DOUBLE_TO_LONG:
+        value.j = java_to_int64(as_double);
+        break;
+    case OP_DOUBLE_TO_FLOAT:
+        value.f = (float)as_double;
+        break;
+    case OP_INT_TO_BYTE:
+        value.i = (int8_t)as_int;
+        break;
+    case OP_INT_TO_CHAR:
+        value.i = (int32_t)(uint16_t)as_int;
+        break;
+    case OP_INT_TO_SHORT:
+        value.i = (int16_t)as_int;
+        break;
+    default:
+        return -1;
+    }
+    return set_register(frame, dest, value);
+}
+
 static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
 {
     unsigned dest = (instruction >> 8) & 0x0f;
@@ -832,8 +947,6 @@ static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
     }
     if (opcode == OP_NEG_DOUBLE) {
         value.d = -value.d;
-    } else if (opcode == OP_INT_TO_CHAR) {
-        value.i = (int32_t)(value.i & 0xffff);
     } else if (opcode == OP_MUL_INT_2ADDR) {
         if (dest >= frame->register_count) {
             return -1;
@@ -1115,8 +1228,24 @@ static int execute_method(InterpreterFrame *frame)
         case OP_INVOKE_INTERFACE:
             failed = execute_invoke(frame, instruction) != 0;
             break;
-        case OP_NEG_DOUBLE:
+        case OP_INT_TO_LONG:
+        case OP_INT_TO_FLOAT:
+        case OP_INT_TO_DOUBLE:
+        case OP_LONG_TO_INT:
+        case OP_LONG_TO_FLOAT:
+        case OP_LONG_TO_DOUBLE:
+        case OP_FLOAT_TO_INT:
+        case OP_FLOAT_TO_LONG:
+        case OP_FLOAT_TO_DOUBLE:
+        case OP_DOUBLE_TO_INT:
+        case OP_DOUBLE_TO_LONG:
+        case OP_DOUBLE_TO_FLOAT:
+        case OP_INT_TO_BYTE:
         case OP_INT_TO_CHAR:
+        case OP_INT_TO_SHORT:
+            failed = execute_convert(frame, instruction) != 0;
+            break;
+        case OP_NEG_DOUBLE:
         case OP_MUL_INT_2ADDR:
         case OP_ADD_DOUBLE_2ADDR:
         case OP_SUB_DOUBLE_2ADDR:
