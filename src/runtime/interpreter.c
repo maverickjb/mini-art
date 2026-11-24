@@ -44,6 +44,13 @@ enum {
     OP_IF_LE = 0x37,
     OP_IF_EQZ = 0x38,
     OP_IF_NEZ = 0x39,
+    OP_APUT = 0x4b,
+    OP_APUT_WIDE = 0x4c,
+    OP_APUT_OBJECT = 0x4d,
+    OP_APUT_BOOLEAN = 0x4e,
+    OP_APUT_BYTE = 0x4f,
+    OP_APUT_CHAR = 0x50,
+    OP_APUT_SHORT = 0x51,
     OP_IGET = 0x52,
     OP_IGET_WIDE = 0x53,
     OP_IGET_OBJECT = 0x54,
@@ -1152,6 +1159,106 @@ static int execute_add_int_lit8(InterpreterFrame *frame, uint16_t instruction)
     return set_int_register(frame, dest, value);
 }
 
+static int aput_matches(uint8_t opcode, const char *desc)
+{
+    char component;
+
+    if (desc == NULL || desc[0] != '[') {
+        return 0;
+    }
+    component = desc[1];
+    switch (opcode) {
+    case OP_APUT:
+        return component == 'I' || component == 'F';
+    case OP_APUT_WIDE:
+        return component == 'J' || component == 'D';
+    case OP_APUT_OBJECT:
+        return component == 'L' || component == '[';
+    case OP_APUT_BOOLEAN:
+        return component == 'Z';
+    case OP_APUT_BYTE:
+        return component == 'B';
+    case OP_APUT_CHAR:
+        return component == 'C';
+    case OP_APUT_SHORT:
+        return component == 'S';
+    default:
+        return 0;
+    }
+}
+
+/* 23x. array[index] = value. A wide value lives in the source register. */
+static int execute_aput(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned value_reg = instruction >> 8;
+    uint16_t regs;
+    unsigned array_reg;
+    unsigned index_reg;
+    JValue array_slot;
+    JValue index_slot;
+    JValue value;
+    const char *desc;
+    int32_t length;
+    void *data;
+    uint8_t opcode = instruction & 0xff;
+
+    if (fetch_u16(frame, &regs) != 0) {
+        return -1;
+    }
+    array_reg = regs & 0xff;
+    index_reg = regs >> 8;
+    if (value_reg >= frame->register_count || array_reg >= frame->register_count ||
+        index_reg >= frame->register_count) {
+        return -1;
+    }
+    if (opcode == OP_APUT_WIDE && value_reg + 1 >= frame->register_count) {
+        return -1;
+    }
+    array_slot = frame->registers[array_reg];
+    index_slot = frame->registers[index_reg];
+    value = frame->registers[value_reg];
+    if (!java_object_check(array_slot.l)) {
+        return -1;
+    }
+    desc = java_object_class(array_slot.l);
+    if (!aput_matches(opcode, desc) ||
+        java_object_array_data(array_slot.l, &length, NULL, &data) != 0) {
+        return -1;
+    }
+    if (index_slot.i < 0 || index_slot.i >= length || data == NULL) {
+        return -1;
+    }
+    switch (opcode) {
+    case OP_APUT:
+        ((int32_t *)data)[index_slot.i] = value.i;
+        break;
+    case OP_APUT_WIDE:
+        ((int64_t *)data)[index_slot.i] = value.j;
+        break;
+    case OP_APUT_OBJECT:
+        if (value.l != NULL && !java_object_check(value.l)) {
+            return -1;
+        }
+        ((JavaObject **)data)[index_slot.i] = value.l;
+        break;
+    case OP_APUT_BOOLEAN:
+        ((uint8_t *)data)[index_slot.i] = value.i != 0;
+        break;
+    case OP_APUT_BYTE:
+        ((int8_t *)data)[index_slot.i] = (int8_t)value.i;
+        break;
+    case OP_APUT_CHAR:
+        ((uint16_t *)data)[index_slot.i] = (uint16_t)value.i;
+        break;
+    case OP_APUT_SHORT:
+        ((int16_t *)data)[index_slot.i] = (int16_t)value.i;
+        break;
+    default:
+        return -1;
+    }
+    return 0;
+}
+
 static int execute_method(InterpreterFrame *frame)
 {
     for (;;) {
@@ -1229,6 +1336,15 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_FILL_ARRAY_DATA:
             failed = execute_fill_array_data(frame, instruction, start) != 0;
+            break;
+        case OP_APUT:
+        case OP_APUT_WIDE:
+        case OP_APUT_OBJECT:
+        case OP_APUT_BOOLEAN:
+        case OP_APUT_BYTE:
+        case OP_APUT_CHAR:
+        case OP_APUT_SHORT:
+            failed = execute_aput(frame, instruction) != 0;
             break;
         case OP_NOP:
             break;
