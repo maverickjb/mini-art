@@ -45,6 +45,13 @@ enum {
     OP_IF_LE = 0x37,
     OP_IF_EQZ = 0x38,
     OP_IF_NEZ = 0x39,
+    OP_AGET = 0x44,
+    OP_AGET_WIDE = 0x45,
+    OP_AGET_OBJECT = 0x46,
+    OP_AGET_BOOLEAN = 0x47,
+    OP_AGET_BYTE = 0x48,
+    OP_AGET_CHAR = 0x49,
+    OP_AGET_SHORT = 0x4a,
     OP_APUT = 0x4b,
     OP_APUT_WIDE = 0x4c,
     OP_APUT_OBJECT = 0x4d,
@@ -1184,18 +1191,25 @@ static int aput_matches(uint8_t opcode, const char *desc)
     }
     component = desc[1];
     switch (opcode) {
+    case OP_AGET:
     case OP_APUT:
         return component == 'I' || component == 'F';
+    case OP_AGET_WIDE:
     case OP_APUT_WIDE:
         return component == 'J' || component == 'D';
+    case OP_AGET_OBJECT:
     case OP_APUT_OBJECT:
         return component == 'L' || component == '[';
+    case OP_AGET_BOOLEAN:
     case OP_APUT_BOOLEAN:
         return component == 'Z';
+    case OP_AGET_BYTE:
     case OP_APUT_BYTE:
         return component == 'B';
+    case OP_AGET_CHAR:
     case OP_APUT_CHAR:
         return component == 'C';
+    case OP_AGET_SHORT:
     case OP_APUT_SHORT:
         return component == 'S';
     default:
@@ -1273,6 +1287,77 @@ static int execute_aput(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     return 0;
+}
+
+/* 23x. vAA = array[index]. A wide result stays in vAA. */
+static int execute_aget(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = instruction >> 8;
+    uint16_t regs;
+    unsigned array_reg;
+    unsigned index_reg;
+    JValue array_slot;
+    JValue index_slot;
+    JValue value;
+    const char *desc;
+    int32_t length;
+    void *data;
+    int32_t index;
+    uint8_t opcode = instruction & 0xff;
+
+    if (fetch_u16(frame, &regs) != 0) {
+        return -1;
+    }
+    array_reg = regs & 0xff;
+    index_reg = regs >> 8;
+    if (dest >= frame->register_count || array_reg >= frame->register_count ||
+        index_reg >= frame->register_count) {
+        return -1;
+    }
+    if (opcode == OP_AGET_WIDE && dest + 1 >= frame->register_count) {
+        return -1;
+    }
+    array_slot = frame->registers[array_reg];
+    index_slot = frame->registers[index_reg];
+    if (!java_object_check(array_slot.l)) {
+        return -1;
+    }
+    desc = java_object_class(array_slot.l);
+    if (!aput_matches(opcode, desc) ||
+        java_object_array_data(array_slot.l, &length, NULL, &data) != 0) {
+        return -1;
+    }
+    index = index_slot.i;
+    if (index < 0 || index >= length || data == NULL) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    switch (opcode) {
+    case OP_AGET:
+        value.i = ((int32_t *)data)[index];
+        break;
+    case OP_AGET_WIDE:
+        value.j = ((int64_t *)data)[index];
+        break;
+    case OP_AGET_OBJECT:
+        value.l = ((JavaObject **)data)[index];
+        break;
+    case OP_AGET_BOOLEAN:
+        value.i = ((uint8_t *)data)[index] != 0;
+        break;
+    case OP_AGET_BYTE:
+        value.i = ((int8_t *)data)[index];
+        break;
+    case OP_AGET_CHAR:
+        value.i = ((uint16_t *)data)[index];
+        break;
+    case OP_AGET_SHORT:
+        value.i = ((int16_t *)data)[index];
+        break;
+    default:
+        return -1;
+    }
+    return set_register(frame, dest, value);
 }
 
 static int execute_method(InterpreterFrame *frame)
@@ -1355,6 +1440,15 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_FILL_ARRAY_DATA:
             failed = execute_fill_array_data(frame, instruction, start) != 0;
+            break;
+        case OP_AGET:
+        case OP_AGET_WIDE:
+        case OP_AGET_OBJECT:
+        case OP_AGET_BOOLEAN:
+        case OP_AGET_BYTE:
+        case OP_AGET_CHAR:
+        case OP_AGET_SHORT:
+            failed = execute_aget(frame, instruction) != 0;
             break;
         case OP_APUT:
         case OP_APUT_WIDE:
