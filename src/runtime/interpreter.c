@@ -110,8 +110,14 @@ enum {
     OP_DIV_DOUBLE = 0xae,
     OP_REM_DOUBLE = 0xaf,
     OP_MUL_INT_2ADDR = 0xb2,
+    OP_ADD_INT_LIT16 = 0xd0,
+    OP_RSUB_INT = 0xd1,
     OP_MUL_INT_LIT16 = 0xd2,
     OP_DIV_INT_LIT16 = 0xd3,
+    OP_REM_INT_LIT16 = 0xd4,
+    OP_AND_INT_LIT16 = 0xd5,
+    OP_OR_INT_LIT16 = 0xd6,
+    OP_XOR_INT_LIT16 = 0xd7,
     OP_ADD_DOUBLE_2ADDR = 0xcb,
     OP_SUB_DOUBLE_2ADDR = 0xcc,
     OP_MUL_DOUBLE_2ADDR = 0xcd,
@@ -1113,46 +1119,54 @@ static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
-/* 22s. vA = vB * sign-extended CCCC. The multiply wraps to 32 bits. */
-static int execute_mul_int_lit16(InterpreterFrame *frame, uint16_t instruction)
+/* 22s. vA = vB <op> sign-extended CCCC. rsub-int subtracts vB from the literal. */
+static int execute_int_lit16(InterpreterFrame *frame, uint16_t instruction)
 {
     uint16_t literal_bits;
     unsigned dest = (instruction >> 8) & 0x0f;
     unsigned src = instruction >> 12;
     int32_t literal;
     int32_t value;
+    uint8_t opcode = instruction & 0xff;
 
     if (fetch_u16(frame, &literal_bits) != 0 || src >= frame->register_count ||
         dest >= frame->register_count) {
         return -1;
     }
     literal = sign16(literal_bits);
-    value = (int32_t)((uint32_t)frame->registers[src].i * (uint32_t)literal);
-    return set_int_register(frame, dest, value);
-}
-
-/* 22s. vA = vB / sign-extended CCCC. Division truncates toward zero. */
-static int execute_div_int_lit16(InterpreterFrame *frame, uint16_t instruction)
-{
-    uint16_t literal_bits;
-    unsigned dest = (instruction >> 8) & 0x0f;
-    unsigned src = instruction >> 12;
-    int32_t literal;
-    int32_t value;
-
-    if (fetch_u16(frame, &literal_bits) != 0 || src >= frame->register_count ||
-        dest >= frame->register_count) {
-        return -1;
-    }
-    literal = sign16(literal_bits);
-    if (literal == 0) {
-        return -1;
-    }
     value = frame->registers[src].i;
-    if (value == INT32_MIN && literal == -1) {
-        value = INT32_MIN;
-    } else {
-        value /= literal;
+    switch (opcode) {
+    case OP_ADD_INT_LIT16:
+        value = (int32_t)((uint32_t)value + (uint32_t)literal);
+        break;
+    case OP_RSUB_INT:
+        value = (int32_t)((uint32_t)literal - (uint32_t)value);
+        break;
+    case OP_MUL_INT_LIT16:
+        value = (int32_t)((uint32_t)value * (uint32_t)literal);
+        break;
+    case OP_DIV_INT_LIT16:
+    case OP_REM_INT_LIT16:
+        if (literal == 0) {
+            return -1;
+        }
+        if (value == INT32_MIN && literal == -1) {
+            value = opcode == OP_DIV_INT_LIT16 ? INT32_MIN : 0;
+            break;
+        }
+        value = opcode == OP_DIV_INT_LIT16 ? value / literal : value % literal;
+        break;
+    case OP_AND_INT_LIT16:
+        value &= literal;
+        break;
+    case OP_OR_INT_LIT16:
+        value |= literal;
+        break;
+    case OP_XOR_INT_LIT16:
+        value ^= literal;
+        break;
+    default:
+        return -1;
     }
     return set_int_register(frame, dest, value);
 }
@@ -1640,11 +1654,15 @@ static int execute_method(InterpreterFrame *frame)
         case OP_REM_DOUBLE:
             failed = execute_double_binop(frame, instruction) != 0;
             break;
+        case OP_ADD_INT_LIT16:
+        case OP_RSUB_INT:
         case OP_MUL_INT_LIT16:
-            failed = execute_mul_int_lit16(frame, instruction) != 0;
-            break;
         case OP_DIV_INT_LIT16:
-            failed = execute_div_int_lit16(frame, instruction) != 0;
+        case OP_REM_INT_LIT16:
+        case OP_AND_INT_LIT16:
+        case OP_OR_INT_LIT16:
+        case OP_XOR_INT_LIT16:
+            failed = execute_int_lit16(frame, instruction) != 0;
             break;
         case OP_ADD_INT_LIT8:
         case OP_RSUB_INT_LIT8:
