@@ -30,6 +30,7 @@ enum {
     OP_CONST_WIDE_HIGH16 = 0x19,
     OP_CONST_STRING = 0x1a,
     OP_CHECK_CAST = 0x1f,
+    OP_ARRAY_LENGTH = 0x21,
     OP_NEW_INSTANCE = 0x22,
     OP_NEW_ARRAY = 0x23,
     OP_FILL_ARRAY_DATA = 0x26,
@@ -1159,6 +1160,21 @@ static int execute_add_int_lit8(InterpreterFrame *frame, uint16_t instruction)
     return set_int_register(frame, dest, value);
 }
 
+/* 12x. vA = vB.length. */
+static int execute_array_length(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    JValue array_slot;
+    int32_t length;
+
+    if (read_register(frame, src, &array_slot) != 0 || !java_object_check(array_slot.l) ||
+        java_object_array_data(array_slot.l, &length, NULL, NULL) != 0) {
+        return -1;
+    }
+    return set_int_register(frame, dest, length);
+}
+
 static int aput_matches(uint8_t opcode, const char *desc)
 {
     char component;
@@ -1327,6 +1343,9 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_CHECK_CAST:
             failed = execute_check_cast(frame) != 0;
+            break;
+        case OP_ARRAY_LENGTH:
+            failed = execute_array_length(frame, instruction) != 0;
             break;
         case OP_NEW_INSTANCE:
             failed = execute_new_instance(frame, instruction) != 0;
