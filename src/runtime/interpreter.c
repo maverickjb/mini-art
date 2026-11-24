@@ -122,7 +122,14 @@ enum {
     OP_MUL_FLOAT_2ADDR = 0xc8,
     OP_DIV_FLOAT_2ADDR = 0xc9,
     OP_REM_FLOAT_2ADDR = 0xca,
-    OP_ADD_INT_LIT8 = 0xd8
+    OP_ADD_INT_LIT8 = 0xd8,
+    OP_RSUB_INT_LIT8 = 0xd9,
+    OP_MUL_INT_LIT8 = 0xda,
+    OP_DIV_INT_LIT8 = 0xdb,
+    OP_REM_INT_LIT8 = 0xdc,
+    OP_AND_INT_LIT8 = 0xdd,
+    OP_OR_INT_LIT8 = 0xde,
+    OP_XOR_INT_LIT8 = 0xdf
 };
 
 /* One interpreted call. result holds the latest invoke return until a
@@ -1150,20 +1157,58 @@ static int execute_div_int_lit16(InterpreterFrame *frame, uint16_t instruction)
     return set_int_register(frame, dest, value);
 }
 
-static int execute_add_int_lit8(InterpreterFrame *frame, uint16_t instruction)
+/* 22b. vAA = vBB <op> sign-extended CC. rsub-int/lit8 subtracts vBB from the literal. */
+static int execute_int_lit8(InterpreterFrame *frame, uint16_t instruction)
 {
     uint16_t word;
     unsigned dest = instruction >> 8;
     unsigned src;
     int32_t literal;
     int32_t value;
+    uint8_t opcode = instruction & 0xff;
 
-    if (fetch_u16(frame, &word) != 0 || (word & 0xff) >= frame->register_count) {
+    if (fetch_u16(frame, &word) != 0) {
         return -1;
     }
     src = word & 0xff;
+    if (dest >= frame->register_count || src >= frame->register_count) {
+        return -1;
+    }
     literal = sign8(word >> 8);
-    value = frame->registers[src].i + literal;
+    value = frame->registers[src].i;
+    switch (opcode) {
+    case OP_ADD_INT_LIT8:
+        value = (int32_t)((uint32_t)value + (uint32_t)literal);
+        break;
+    case OP_RSUB_INT_LIT8:
+        value = (int32_t)((uint32_t)literal - (uint32_t)value);
+        break;
+    case OP_MUL_INT_LIT8:
+        value = (int32_t)((uint32_t)value * (uint32_t)literal);
+        break;
+    case OP_DIV_INT_LIT8:
+    case OP_REM_INT_LIT8:
+        if (literal == 0) {
+            return -1;
+        }
+        if (value == INT32_MIN && literal == -1) {
+            value = opcode == OP_DIV_INT_LIT8 ? INT32_MIN : 0;
+            break;
+        }
+        value = opcode == OP_DIV_INT_LIT8 ? value / literal : value % literal;
+        break;
+    case OP_AND_INT_LIT8:
+        value &= literal;
+        break;
+    case OP_OR_INT_LIT8:
+        value |= literal;
+        break;
+    case OP_XOR_INT_LIT8:
+        value ^= literal;
+        break;
+    default:
+        return -1;
+    }
     return set_int_register(frame, dest, value);
 }
 
@@ -1602,7 +1647,14 @@ static int execute_method(InterpreterFrame *frame)
             failed = execute_div_int_lit16(frame, instruction) != 0;
             break;
         case OP_ADD_INT_LIT8:
-            failed = execute_add_int_lit8(frame, instruction) != 0;
+        case OP_RSUB_INT_LIT8:
+        case OP_MUL_INT_LIT8:
+        case OP_DIV_INT_LIT8:
+        case OP_REM_INT_LIT8:
+        case OP_AND_INT_LIT8:
+        case OP_OR_INT_LIT8:
+        case OP_XOR_INT_LIT8:
+            failed = execute_int_lit8(frame, instruction) != 0;
             break;
         default:
             fprintf(stderr, "unsupported opcode %#x\n", opcode);
