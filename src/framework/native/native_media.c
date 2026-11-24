@@ -131,17 +131,26 @@ static int native_audio_track_builder_init(Runtime *rt, const JValue *args, uint
     return 0;
 }
 
-static int return_builder(const JValue *args, uint32_t argc, JValue *result, const char *label)
+typedef enum {
+    BUILDER_ARG_INT,
+    BUILDER_ARG_OBJECT
+} BuilderArgType;
+
+static int return_builder(const JValue *args, uint32_t argc, JValue *result, const char *label,
+                          BuilderArgType arg_type)
 {
     if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
         return -1;
     }
-    if (argc >= 2 && java_object_check(args[1].l)) {
-        fprintf(stderr, "%s %s\n", label, java_object_class(args[1].l));
-    } else if (argc >= 2) {
+    if (argc >= 2 && arg_type == BUILDER_ARG_OBJECT) {
+        fprintf(stderr, "%s %s\n", label,
+                java_object_check(args[1].l) ? java_object_class(args[1].l) : "?");
+    } else if (argc >= 2 && arg_type == BUILDER_ARG_INT) {
         fprintf(stderr, "%s %d\n", label, args[1].i);
-    } else {
+    } else if (argc < 2) {
         fprintf(stderr, "%s\n", label);
+    } else {
+        return -1;
     }
     result->l = args[0].l;
     return 0;
@@ -151,28 +160,32 @@ static int native_audio_track_set_attributes(Runtime *rt, const JValue *args, ui
                                              JValue *result)
 {
     (void)rt;
-    return return_builder(args, argc, result, "AudioTrack.Builder.setAudioAttributes");
+    return return_builder(args, argc, result, "AudioTrack.Builder.setAudioAttributes",
+                          BUILDER_ARG_OBJECT);
 }
 
 static int native_audio_track_set_format(Runtime *rt, const JValue *args, uint32_t argc,
                                          JValue *result)
 {
     (void)rt;
-    return return_builder(args, argc, result, "AudioTrack.Builder.setAudioFormat");
+    return return_builder(args, argc, result, "AudioTrack.Builder.setAudioFormat",
+                          BUILDER_ARG_OBJECT);
 }
 
 static int native_audio_track_set_buffer_size(Runtime *rt, const JValue *args, uint32_t argc,
                                               JValue *result)
 {
     (void)rt;
-    return return_builder(args, argc, result, "AudioTrack.Builder.setBufferSizeInBytes");
+    return return_builder(args, argc, result, "AudioTrack.Builder.setBufferSizeInBytes",
+                          BUILDER_ARG_INT);
 }
 
 static int native_audio_track_set_transfer_mode(Runtime *rt, const JValue *args, uint32_t argc,
                                                 JValue *result)
 {
     (void)rt;
-    return return_builder(args, argc, result, "AudioTrack.Builder.setTransferMode");
+    return return_builder(args, argc, result, "AudioTrack.Builder.setTransferMode",
+                          BUILDER_ARG_INT);
 }
 
 static int native_audio_track_build(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
