@@ -45,6 +45,10 @@ enum {
     OP_IF_LE = 0x37,
     OP_IF_EQZ = 0x38,
     OP_IF_NEZ = 0x39,
+    OP_IF_LTZ = 0x3a,
+    OP_IF_GEZ = 0x3b,
+    OP_IF_GTZ = 0x3c,
+    OP_IF_LEZ = 0x3d,
     OP_AGET = 0x44,
     OP_AGET_WIDE = 0x45,
     OP_AGET_OBJECT = 0x46,
@@ -852,12 +856,16 @@ static int compare_if(uint8_t opcode, int32_t left, int32_t right)
     case OP_IF_NEZ:
         return left != right;
     case OP_IF_LT:
+    case OP_IF_LTZ:
         return left < right;
     case OP_IF_GE:
+    case OP_IF_GEZ:
         return left >= right;
     case OP_IF_GT:
+    case OP_IF_GTZ:
         return left > right;
     case OP_IF_LE:
+    case OP_IF_LEZ:
         return left <= right;
     default:
         return 0;
@@ -873,7 +881,7 @@ static int execute_if(InterpreterFrame *frame, uint16_t instruction, uint32_t st
     unsigned left_reg;
     unsigned right_reg;
 
-    if (opcode == OP_IF_EQZ || opcode == OP_IF_NEZ) {
+    if (opcode >= OP_IF_EQZ && opcode <= OP_IF_LEZ) {
         left_reg = instruction >> 8;
     } else {
         left_reg = (instruction >> 8) & 0x0f;
@@ -1667,6 +1675,10 @@ static int execute_method(InterpreterFrame *frame)
         case OP_IF_LE:
         case OP_IF_EQZ:
         case OP_IF_NEZ:
+        case OP_IF_LTZ:
+        case OP_IF_GEZ:
+        case OP_IF_GTZ:
+        case OP_IF_LEZ:
             failed = execute_if(frame, instruction, start) != 0;
             break;
         case OP_IGET:
