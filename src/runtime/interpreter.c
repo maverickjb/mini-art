@@ -109,7 +109,17 @@ enum {
     OP_MUL_DOUBLE = 0xad,
     OP_DIV_DOUBLE = 0xae,
     OP_REM_DOUBLE = 0xaf,
+    OP_ADD_INT_2ADDR = 0xb0,
+    OP_SUB_INT_2ADDR = 0xb1,
     OP_MUL_INT_2ADDR = 0xb2,
+    OP_DIV_INT_2ADDR = 0xb3,
+    OP_REM_INT_2ADDR = 0xb4,
+    OP_AND_INT_2ADDR = 0xb5,
+    OP_OR_INT_2ADDR = 0xb6,
+    OP_XOR_INT_2ADDR = 0xb7,
+    OP_SHL_INT_2ADDR = 0xb8,
+    OP_SHR_INT_2ADDR = 0xb9,
+    OP_USHR_INT_2ADDR = 0xba,
     OP_ADD_INT_LIT16 = 0xd0,
     OP_RSUB_INT = 0xd1,
     OP_MUL_INT_LIT16 = 0xd2,
@@ -985,11 +995,6 @@ static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
     }
     if (opcode == OP_NEG_DOUBLE) {
         value.d = -value.d;
-    } else if (opcode == OP_MUL_INT_2ADDR) {
-        if (dest >= frame->register_count) {
-            return -1;
-        }
-        value.i = frame->registers[dest].i * value.i;
     } else {
         double left;
         double right = value.d;
@@ -1117,6 +1122,71 @@ static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
     memset(&value, 0, sizeof(value));
     value.d = result;
     return set_register(frame, dest, value);
+}
+
+/* 12x. vA = vA <op> vB. Shifts use the low 5 bits of vB. */
+static int execute_int_2addr(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    int32_t left;
+    int32_t right;
+    unsigned shift;
+    uint8_t opcode = instruction & 0xff;
+
+    if (dest >= frame->register_count || src >= frame->register_count) {
+        return -1;
+    }
+    left = frame->registers[dest].i;
+    right = frame->registers[src].i;
+    switch (opcode) {
+    case OP_ADD_INT_2ADDR:
+        left = (int32_t)((uint32_t)left + (uint32_t)right);
+        break;
+    case OP_SUB_INT_2ADDR:
+        left = (int32_t)((uint32_t)left - (uint32_t)right);
+        break;
+    case OP_MUL_INT_2ADDR:
+        left = (int32_t)((uint32_t)left * (uint32_t)right);
+        break;
+    case OP_DIV_INT_2ADDR:
+    case OP_REM_INT_2ADDR:
+        if (right == 0) {
+            return -1;
+        }
+        if (left == INT32_MIN && right == -1) {
+            left = opcode == OP_DIV_INT_2ADDR ? INT32_MIN : 0;
+            break;
+        }
+        left = opcode == OP_DIV_INT_2ADDR ? left / right : left % right;
+        break;
+    case OP_AND_INT_2ADDR:
+        left &= right;
+        break;
+    case OP_OR_INT_2ADDR:
+        left |= right;
+        break;
+    case OP_XOR_INT_2ADDR:
+        left ^= right;
+        break;
+    case OP_SHL_INT_2ADDR:
+        left = (int32_t)((uint32_t)left << ((unsigned)right & 31u));
+        break;
+    case OP_SHR_INT_2ADDR:
+        shift = (unsigned)right & 31u;
+        if (left < 0 && shift != 0) {
+            left = (int32_t)(((uint32_t)left >> shift) | (~0u << (32u - shift)));
+        } else {
+            left = (int32_t)((uint32_t)left >> shift);
+        }
+        break;
+    case OP_USHR_INT_2ADDR:
+        left = (int32_t)((uint32_t)left >> ((unsigned)right & 31u));
+        break;
+    default:
+        return -1;
+    }
+    return set_int_register(frame, dest, left);
 }
 
 /* 22s. vA = vB <op> sign-extended CCCC. rsub-int subtracts vB from the literal. */
@@ -1609,7 +1679,6 @@ static int execute_method(InterpreterFrame *frame)
             failed = execute_convert(frame, instruction) != 0;
             break;
         case OP_NEG_DOUBLE:
-        case OP_MUL_INT_2ADDR:
         case OP_ADD_DOUBLE_2ADDR:
         case OP_SUB_DOUBLE_2ADDR:
         case OP_MUL_DOUBLE_2ADDR:
@@ -1653,6 +1722,19 @@ static int execute_method(InterpreterFrame *frame)
         case OP_DIV_DOUBLE:
         case OP_REM_DOUBLE:
             failed = execute_double_binop(frame, instruction) != 0;
+            break;
+        case OP_ADD_INT_2ADDR:
+        case OP_SUB_INT_2ADDR:
+        case OP_MUL_INT_2ADDR:
+        case OP_DIV_INT_2ADDR:
+        case OP_REM_INT_2ADDR:
+        case OP_AND_INT_2ADDR:
+        case OP_OR_INT_2ADDR:
+        case OP_XOR_INT_2ADDR:
+        case OP_SHL_INT_2ADDR:
+        case OP_SHR_INT_2ADDR:
+        case OP_USHR_INT_2ADDR:
+            failed = execute_int_2addr(frame, instruction) != 0;
             break;
         case OP_ADD_INT_LIT16:
         case OP_RSUB_INT:
