@@ -32,7 +32,7 @@ int native_register_framework(Runtime *rt)
     };
 
     if (native_bind(rt, core, sizeof(core) / sizeof(core[0])) != 0 ||
-        native_register_random(rt) != 0 || native_register_activity(rt) != 0 ||
+        native_register_random(rt) != 0 || native_register_system(rt) != 0 || native_register_activity(rt) != 0 ||
         native_register_widget(rt) != 0 || native_register_media(rt) != 0 ||
         native_register_string(rt) != 0 || native_register_math(rt) != 0) {
         return -1;

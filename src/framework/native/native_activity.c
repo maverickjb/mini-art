@@ -262,6 +262,19 @@ static int native_set_content_view(Runtime *rt, const JValue *args, uint32_t arg
     return 0;
 }
 
+static int native_set_content_view_object(Runtime *rt, const JValue *args, uint32_t argc,
+                                          JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l) ||
+        java_object_set_field(args[0].l, "content", args[1]) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "setContentView %s\n", java_object_class(args[1].l));
+    return 0;
+}
+
 static int native_find_view_by_id(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JavaObject *view;
@@ -289,6 +302,8 @@ int native_register_activity(Runtime *rt)
         {"Landroid/view/Window;", "addFlags", "(I)V", native_window_add_flags},
         {"Landroid/app/Activity;", "finish", "()V", native_return_void},
         {"Landroid/app/Activity;", "setContentView", "(I)V", native_set_content_view},
+        {"Landroid/app/Activity;", "setContentView", "(Landroid/view/View;)V",
+         native_set_content_view_object},
         {"Landroid/app/Activity;", "findViewById", "(I)Landroid/view/View;", native_find_view_by_id},
         {"Landroidx/appcompat/app/AppCompatActivity;", "<init>", "()V", native_return_void},
         {"Landroidx/appcompat/app/AppCompatActivity;", "onCreate", "(Landroid/os/Bundle;)V",

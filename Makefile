@@ -66,6 +66,7 @@ SRCS := \
 	src/framework/loaded_apk.c \
 	src/framework/native/native_registry.c \
 	src/framework/native/native_random.c \
+	src/framework/native/native_system.c \
 	src/framework/native/native_activity.c \
 	src/framework/native/native_widget.c \
 	src/framework/native/native_media.c \
