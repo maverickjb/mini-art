@@ -262,17 +262,52 @@ static int native_set_content_view(Runtime *rt, const JValue *args, uint32_t arg
     return 0;
 }
 
+static int surface_created(Runtime *rt, JavaObject *view)
+{
+    JValue stored;
+    JavaObject *holder;
+    JavaObject *callback;
+    ArtMethod *method;
+    JValue args[2];
+    JValue result;
+
+    memset(&stored, 0, sizeof(stored));
+    if (java_object_get_field(view, "holder", &stored) != 0) {
+        return -1;
+    }
+    holder = stored.l;
+    if (!java_object_check(holder)) {
+        return -1;
+    }
+    callback = java_object_listener(holder);
+    if (!java_object_check(callback)) {
+        return 0;
+    }
+    method = runtime_find_method(rt, java_object_class(callback), "surfaceCreated",
+                                 "(Landroid/view/SurfaceHolder;)V");
+    if (method == NULL) {
+        fprintf(stderr, "no surfaceCreated on %s\n", java_object_class(callback));
+        return -1;
+    }
+    memset(args, 0, sizeof(args));
+    memset(&result, 0, sizeof(result));
+    args[0].l = callback;
+    args[1].l = holder;
+    fprintf(stderr, "SurfaceHolder.Callback.surfaceCreated %s\n", java_object_class(callback));
+    return runtime_invoke(rt, method, args, &result);
+}
+
 static int native_set_content_view_object(Runtime *rt, const JValue *args, uint32_t argc,
                                           JValue *result)
 {
-    (void)rt;
     (void)result;
     if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l) ||
-        java_object_set_field(args[0].l, "content", args[1]) != 0) {
+        java_object_set_field(args[0].l, "content", args[1]) != 0 || ui_content_begin() == NULL) {
         return -1;
     }
+    content_open = 1;
     fprintf(stderr, "setContentView %s\n", java_object_class(args[1].l));
-    return 0;
+    return surface_created(rt, args[1].l);
 }
 
 static int native_find_view_by_id(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
