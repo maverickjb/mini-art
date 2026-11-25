@@ -1,8 +1,5 @@
 #include "native_internal.h"
 
-#include <stdio.h>
-#include <string.h>
-
 int native_bind(Runtime *rt, const struct NativeBinding *rows, size_t count)
 {
     size_t i;
@@ -13,17 +10,6 @@ int native_bind(Runtime *rt, const struct NativeBinding *rows, size_t count)
             return -1;
         }
     }
-    return 0;
-}
-
-static int native_random_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
-{
-    (void)rt;
-    (void)result;
-    if (argc < 1 || !java_object_check(args[0].l)) {
-        return -1;
-    }
-    fprintf(stderr, "Random.<init>\n");
     return 0;
 }
 
@@ -42,13 +28,12 @@ int native_register_framework(Runtime *rt)
 {
     static const struct NativeBinding core[] = {
         {"Ljava/lang/Object;", "<init>", "()V", native_return_void},
-        {"Ljava/util/Random;", "<init>", "()V", native_random_init},
         {"Ljava/lang/RuntimeException;", "<init>", "(Ljava/lang/String;)V", native_exception_init},
     };
 
     if (native_bind(rt, core, sizeof(core) / sizeof(core[0])) != 0 ||
-        native_register_activity(rt) != 0 || native_register_widget(rt) != 0 ||
-        native_register_media(rt) != 0 ||
+        native_register_random(rt) != 0 || native_register_activity(rt) != 0 ||
+        native_register_widget(rt) != 0 || native_register_media(rt) != 0 ||
         native_register_string(rt) != 0 || native_register_math(rt) != 0) {
         return -1;
     }
