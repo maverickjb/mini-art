@@ -53,6 +53,27 @@ static int native_math_log10(Runtime *rt, const JValue *args, uint32_t argc, JVa
     return native_math1(rt, args, argc, result, log10);
 }
 
+static int native_math_min_float(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    float a;
+    float b;
+
+    (void)rt;
+    if (argc < 2 || result == NULL) {
+        return -1;
+    }
+    a = args[0].f;
+    b = args[1].f;
+    if (isnan(a)) {
+        result->f = a;
+    } else if (a == 0.0f && b == 0.0f && signbit(b)) {
+        result->f = b;
+    } else {
+        result->f = a <= b ? a : b;
+    }
+    return 0;
+}
+
 static int native_math_pow(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -74,6 +95,7 @@ int native_register_math(Runtime *rt)
         {"Ljava/lang/Math;", "log", "(D)D", native_math_log},
         {"Ljava/lang/Math;", "log10", "(D)D", native_math_log10},
         {"Ljava/lang/Math;", "pow", "(DD)D", native_math_pow},
+        {"Ljava/lang/Math;", "min", "(FF)F", native_math_min_float},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));

@@ -129,6 +129,123 @@ static int native_surface_view_get_holder(Runtime *rt, const JValue *args, uint3
     return 0;
 }
 
+static int native_surface_holder_get_surface(Runtime *rt, const JValue *args, uint32_t argc,
+                                             JValue *result)
+{
+    JavaObject *holder;
+    JavaObject *surface;
+    JValue stored;
+
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    holder = args[0].l;
+    memset(&stored, 0, sizeof(stored));
+    if (java_object_get_field(holder, "surface", &stored) != 0) {
+        return -1;
+    }
+    if (!java_object_check(stored.l)) {
+        surface = java_object_new(rt, "Landroid/view/Surface;");
+        if (surface == NULL) {
+            return -1;
+        }
+        stored.l = surface;
+        if (java_object_set_field(holder, "surface", stored) != 0) {
+            return -1;
+        }
+    }
+    fprintf(stderr, "SurfaceHolder.getSurface\n");
+    result->l = stored.l;
+    return 0;
+}
+
+static int native_surface_holder_lock_canvas(Runtime *rt, const JValue *args, uint32_t argc,
+                                             JValue *result)
+{
+    JavaObject *holder;
+    JavaObject *canvas;
+    JValue stored;
+    JValue size;
+
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    holder = args[0].l;
+    memset(&stored, 0, sizeof(stored));
+    if (java_object_get_field(holder, "canvas", &stored) != 0) {
+        return -1;
+    }
+    if (!java_object_check(stored.l)) {
+        canvas = java_object_new(rt, "Landroid/graphics/Canvas;");
+        if (canvas == NULL) {
+            return -1;
+        }
+        memset(&size, 0, sizeof(size));
+        size.i = 480;
+        if (java_object_set_field(canvas, "width", size) != 0) {
+            return -1;
+        }
+        size.i = 800;
+        if (java_object_set_field(canvas, "height", size) != 0) {
+            return -1;
+        }
+        stored.l = canvas;
+        if (java_object_set_field(holder, "canvas", stored) != 0) {
+            return -1;
+        }
+    }
+    fprintf(stderr, "SurfaceHolder.lockCanvas\n");
+    result->l = stored.l;
+    return 0;
+}
+
+static int native_canvas_get_width(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue stored;
+
+    (void)rt;
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    memset(&stored, 0, sizeof(stored));
+    if (java_object_get_field(args[0].l, "width", &stored) != 0) {
+        return -1;
+    }
+    memset(result, 0, sizeof(*result));
+    result->i = stored.i;
+    fprintf(stderr, "Canvas.getWidth %d\n", stored.i);
+    return 0;
+}
+
+static int native_canvas_get_height(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue stored;
+
+    (void)rt;
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    memset(&stored, 0, sizeof(stored));
+    if (java_object_get_field(args[0].l, "height", &stored) != 0) {
+        return -1;
+    }
+    memset(result, 0, sizeof(*result));
+    result->i = stored.i;
+    fprintf(stderr, "Canvas.getHeight %d\n", stored.i);
+    return 0;
+}
+
+static int native_surface_is_valid(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    if (argc < 1 || result == NULL || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    result->i = 1;
+    fprintf(stderr, "Surface.isValid 1\n");
+    return 0;
+}
+
 static int native_view_set_focusable(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -207,6 +324,13 @@ int native_register_widget(Runtime *rt)
          native_surface_view_get_holder},
         {"Landroid/view/SurfaceHolder;", "addCallback", "(Landroid/view/SurfaceHolder$Callback;)V",
          native_surface_holder_add_callback},
+        {"Landroid/view/SurfaceHolder;", "getSurface", "()Landroid/view/Surface;",
+         native_surface_holder_get_surface},
+        {"Landroid/view/SurfaceHolder;", "lockCanvas", "()Landroid/graphics/Canvas;",
+         native_surface_holder_lock_canvas},
+        {"Landroid/graphics/Canvas;", "getWidth", "()I", native_canvas_get_width},
+        {"Landroid/graphics/Canvas;", "getHeight", "()I", native_canvas_get_height},
+        {"Landroid/view/Surface;", "isValid", "()Z", native_surface_is_valid},
         {"Landroid/view/View;", "setFocusable", "(Z)V", native_view_set_focusable},
         {"Landroid/graphics/Paint;", "<init>", "(I)V", native_paint_init},
         {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
