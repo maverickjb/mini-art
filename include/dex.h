@@ -1,6 +1,8 @@
 #ifndef MINI_ART_DEX_H
 #define MINI_ART_DEX_H
 
+#include "art_field.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,12 +37,28 @@ struct DexDeclaredMethod {
     uint32_t code_off;
 };
 
+/* One element of class_def_item.static_values. DEX_ENCODED_NONE means the
+ * field keeps its default zero or null. index is a string id for STRING. */
+enum {
+    DEX_ENCODED_NONE = 0,
+    DEX_ENCODED_INT = 1,
+    DEX_ENCODED_WIDE = 2,
+    DEX_ENCODED_STRING = 3,
+    DEX_ENCODED_NULL = 4
+};
+
+struct DexEncodedValue {
+    int kind;
+    int32_t i;
+    int64_t j;
+    uint32_t index;
+};
+
 struct DexStaticField {
     const char *name;
     const char *type;
-    int32_t init;
-    int is_object;
-    int is_wide;
+    int kind;
+    struct DexEncodedValue value;
 };
 
 int dex_file_visit_classes(const DexFile *dex,

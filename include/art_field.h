@@ -11,8 +11,8 @@ enum {
     ART_FIELD_OBJECT = 2
 };
 
-/* Identity of a resolved field. The current value lives in the declaring
- * class's static storage, not in this struct and not in the dex cache. */
+/* Identity of a resolved field. The live value is static_values[slot] on the
+ * declaring class. This struct does not hold that value. */
 struct ArtField {
     ArtClass *declaring;
     const char *name;

@@ -126,6 +126,15 @@ int runtime_define_static_int(Runtime *rt, const char *descriptor, const char *n
     return class_linker_define_static_int(rt->linker, descriptor, name, value);
 }
 
+int runtime_define_static_object(Runtime *rt, const char *descriptor, const char *name,
+                                 const char *type, void *value)
+{
+    if (rt == NULL) {
+        return -1;
+    }
+    return class_linker_define_static_object(rt->linker, descriptor, name, type, value);
+}
+
 void runtime_destroy(Runtime *rt)
 {
     size_t i;

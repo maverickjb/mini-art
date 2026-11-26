@@ -20,6 +20,8 @@ enum {
     CLASS_INIT_FAILED = 3
 };
 
+/* static_fields[i] describes static_values[i]. init_state is NONE, RUNNING
+ * while this initialization is already on the stack, DONE, or FAILED. */
 struct ArtClass {
     const char *descriptor;
     const char *superclass;
@@ -174,13 +176,9 @@ static int fill_statics(ArtClass *klass, const struct DexStaticField *statics, u
             fields[i].name = statics[i].name;
             fields[i].type = statics[i].type;
             fields[i].slot = i;
-            if (statics[i].is_object) {
-                fields[i].kind = ART_FIELD_OBJECT;
-            } else if (statics[i].is_wide) {
-                fields[i].kind = ART_FIELD_WIDE;
-            } else {
-                fields[i].kind = ART_FIELD_INT;
-                values[i].i = statics[i].init;
+            fields[i].kind = statics[i].kind;
+            if (statics[i].kind == ART_FIELD_INT && statics[i].value.kind == DEX_ENCODED_INT) {
+                values[i].i = statics[i].value.i;
             }
         }
     }
@@ -347,8 +345,8 @@ static ArtClass *create_class(ClassLinker *linker, const char *descriptor, const
     return klass;
 }
 
-int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, const char *name,
-                                   int32_t value)
+static int define_static_value(ClassLinker *linker, const char *descriptor, const char *name,
+                               const char *type, int kind, JValue value)
 {
     ArtClass *klass;
     ArtField *fields;
@@ -356,7 +354,7 @@ int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, 
     uint32_t count;
     uint32_t i;
 
-    if (linker == NULL || descriptor == NULL || name == NULL) {
+    if (linker == NULL || descriptor == NULL || name == NULL || type == NULL) {
         return -1;
     }
     klass = class_linker_find(linker, descriptor);
@@ -369,7 +367,10 @@ int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, 
     }
     for (i = 0; i < klass->static_count; i++) {
         if (klass->static_fields[i].name != NULL && strcmp(klass->static_fields[i].name, name) == 0) {
-            klass->static_values[i].i = value;
+            if (klass->static_fields[i].kind != kind) {
+                return -1;
+            }
+            klass->static_values[i] = value;
             return 0;
         }
     }
@@ -384,17 +385,36 @@ int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, 
         return -1;
     }
     memset(&fields[count - 1], 0, sizeof(fields[count - 1]));
-    memset(&values[count - 1], 0, sizeof(values[count - 1]));
     fields[count - 1].declaring = klass;
     fields[count - 1].name = name;
-    fields[count - 1].type = "I";
+    fields[count - 1].type = type;
     fields[count - 1].slot = count - 1;
-    fields[count - 1].kind = ART_FIELD_INT;
-    values[count - 1].i = value;
+    fields[count - 1].kind = kind;
+    values[count - 1] = value;
     klass->static_fields = fields;
     klass->static_values = values;
     klass->static_count = count;
     return 0;
+}
+
+int class_linker_define_static_int(ClassLinker *linker, const char *descriptor, const char *name,
+                                   int32_t value)
+{
+    JValue stored;
+
+    memset(&stored, 0, sizeof(stored));
+    stored.i = value;
+    return define_static_value(linker, descriptor, name, "I", ART_FIELD_INT, stored);
+}
+
+int class_linker_define_static_object(ClassLinker *linker, const char *descriptor,
+                                      const char *name, const char *type, void *value)
+{
+    JValue stored;
+
+    memset(&stored, 0, sizeof(stored));
+    stored.l = value;
+    return define_static_value(linker, descriptor, name, type, ART_FIELD_OBJECT, stored);
 }
 
 static int hierarchy_cycle(const ClassLinker *linker)

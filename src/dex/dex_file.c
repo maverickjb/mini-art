@@ -667,14 +667,20 @@ int dex_file_visit_classes(const DexFile *dex,
                     statics = grown;
                     static_cap = grown_cap;
                 }
+                memset(&statics[static_count], 0, sizeof(statics[static_count]));
                 statics[static_count].name = field_name;
                 statics[static_count].type = field_type;
-                statics[static_count].is_object = field_type[0] == 'L' || field_type[0] == '[';
-                statics[static_count].is_wide = field_type[0] == 'J' || field_type[0] == 'D';
-                statics[static_count].init = 0;
-                if (!statics[static_count].is_object && !statics[static_count].is_wide &&
-                    dex->field_has_int != NULL && dex->field_has_int[field_idx]) {
-                    statics[static_count].init = dex->field_int[field_idx];
+                if (field_type[0] == 'L' || field_type[0] == '[') {
+                    statics[static_count].kind = ART_FIELD_OBJECT;
+                } else if (field_type[0] == 'J' || field_type[0] == 'D') {
+                    statics[static_count].kind = ART_FIELD_WIDE;
+                } else {
+                    statics[static_count].kind = ART_FIELD_INT;
+                }
+                if (statics[static_count].kind == ART_FIELD_INT && dex->field_has_int != NULL &&
+                    dex->field_has_int[field_idx]) {
+                    statics[static_count].value.kind = DEX_ENCODED_INT;
+                    statics[static_count].value.i = dex->field_int[field_idx];
                 }
                 static_count++;
             }

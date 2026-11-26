@@ -28,6 +28,8 @@ Runtime *runtime_create(void);
 void runtime_destroy(Runtime *rt);
 int runtime_define_static_int(Runtime *rt, const char *descriptor, const char *name,
                               int32_t value);
+int runtime_define_static_object(Runtime *rt, const char *descriptor, const char *name,
+                                 const char *type, void *value);
 
 int runtime_load_dex(Runtime *rt, const uint8_t *bytes, size_t size);
 int runtime_register_native(Runtime *rt, const char *class_desc, const char *name,
