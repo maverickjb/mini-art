@@ -23,8 +23,8 @@ struct DexFile {
     char **protos;
     uint32_t *code_off;
     CodeItem *code;
-    int *field_has_int;
-    int32_t *field_int;
+    unsigned char *field_has_value;
+    struct DexEncodedValue *field_value;
     struct DexCache {
         ArtMethod **resolved_methods;
         size_t num_methods;
@@ -186,17 +186,32 @@ static char *build_proto(const DexFile *dex, uint32_t proto_idx)
     return proto;
 }
 
-static int read_encoded_value(const DexFile *dex, size_t *off, int *is_int, int32_t *out_int)
+static uint64_t sign_extend(uint64_t raw, size_t nbytes)
+{
+    unsigned bits;
+
+    if (nbytes == 0 || nbytes >= 8) {
+        return raw;
+    }
+    bits = (unsigned)nbytes * 8u;
+    if ((raw & (1ULL << (bits - 1u))) != 0) {
+        raw |= ~((1ULL << bits) - 1ULL);
+    }
+    return raw;
+}
+
+/* encoded_value from dex-format. Float and double are right-zero-extended:
+ * the stored bytes are the high bytes, and the missing low bytes are zero. */
+static int read_encoded_value(const DexFile *dex, size_t *off, struct DexEncodedValue *out)
 {
     uint8_t header;
     uint8_t type;
     uint8_t arg;
     size_t nbytes;
-    uint32_t value;
+    uint64_t raw;
     size_t i;
 
-    *is_int = 0;
-    *out_int = 0;
+    memset(out, 0, sizeof(*out));
     if (*off >= dex->size) {
         return -1;
     }
@@ -206,26 +221,54 @@ static int read_encoded_value(const DexFile *dex, size_t *off, int *is_int, int3
     if (type == 0x1c || type == 0x1d) {
         return -1;
     }
-    if (type == 0x1e || type == 0x1f) {
+    if (type == 0x1e) {
+        out->kind = DEX_ENCODED_NULL;
+        return 0;
+    }
+    if (type == 0x1f) {
+        out->kind = DEX_ENCODED_INT;
+        out->i = arg != 0;
         return 0;
     }
     nbytes = (size_t)arg + 1;
     if (*off + nbytes > dex->size || nbytes > 8) {
         return -1;
     }
-    value = 0;
-    for (i = 0; i < nbytes && i < 4; i++) {
-        value |= (uint32_t)dex->bytes[*off + i] << (8 * i);
-    }
-    if ((type == 0x00 || type == 0x02 || type == 0x03 || type == 0x04) && nbytes <= 4) {
-        uint32_t bits = (uint32_t)nbytes * 8;
-        if (bits < 32 && (value & (1u << (bits - 1))) != 0) {
-            value |= ~((1u << bits) - 1);
-        }
-        *is_int = 1;
-        *out_int = (int32_t)value;
+    raw = 0;
+    for (i = 0; i < nbytes; i++) {
+        raw |= (uint64_t)dex->bytes[*off + i] << (8 * i);
     }
     *off += nbytes;
+    switch (type) {
+    case 0x00:
+    case 0x02:
+    case 0x04:
+        out->kind = DEX_ENCODED_INT;
+        out->i = (int32_t)sign_extend(raw, nbytes);
+        break;
+    case 0x03:
+        out->kind = DEX_ENCODED_INT;
+        out->i = (int32_t)raw;
+        break;
+    case 0x06:
+        out->kind = DEX_ENCODED_WIDE;
+        out->j = (int64_t)sign_extend(raw, nbytes);
+        break;
+    case 0x10:
+        out->kind = DEX_ENCODED_INT;
+        out->i = (int32_t)((uint32_t)raw << (8u * (4u - (unsigned)nbytes)));
+        break;
+    case 0x11:
+        out->kind = DEX_ENCODED_WIDE;
+        out->j = (int64_t)(raw << (8u * (8u - (unsigned)nbytes)));
+        break;
+    case 0x17:
+        out->kind = DEX_ENCODED_STRING;
+        out->index = (uint32_t)raw;
+        break;
+    default:
+        break;
+    }
     return 0;
 }
 
@@ -270,8 +313,7 @@ static int scan_class(DexFile *dex, uint32_t class_def_off)
     for (i = 0; i < static_fields; i++) {
         uint32_t diff;
         uint32_t access;
-        int is_int = 0;
-        int32_t value = 0;
+        struct DexEncodedValue encoded;
         if (read_uleb(dex, &cursor, &diff) != 0 || read_uleb(dex, &cursor, &access) != 0) {
             return -1;
         }
@@ -281,13 +323,13 @@ static int scan_class(DexFile *dex, uint32_t class_def_off)
             return -1;
         }
         if (value_index < value_count) {
-            if (read_encoded_value(dex, &value_cursor, &is_int, &value) != 0) {
+            if (read_encoded_value(dex, &value_cursor, &encoded) != 0) {
                 return -1;
             }
+            dex->field_has_value[field_idx] = 1;
+            dex->field_value[field_idx] = encoded;
             value_index++;
         }
-        dex->field_has_int[field_idx] = 1;
-        dex->field_int[field_idx] = is_int ? value : 0;
     }
 
     for (i = 0; i < instance_fields; i++) {
@@ -419,9 +461,9 @@ DexFile *dex_file_open(const uint8_t *bytes, size_t size)
         }
     }
     if (dex->field_ids_size > 0) {
-        dex->field_has_int = calloc(dex->field_ids_size, sizeof(*dex->field_has_int));
-        dex->field_int = calloc(dex->field_ids_size, sizeof(*dex->field_int));
-        if (dex->field_has_int == NULL || dex->field_int == NULL) {
+        dex->field_has_value = calloc(dex->field_ids_size, sizeof(*dex->field_has_value));
+        dex->field_value = calloc(dex->field_ids_size, sizeof(*dex->field_value));
+        if (dex->field_has_value == NULL || dex->field_value == NULL) {
             dex_file_close(dex);
             return NULL;
         }
@@ -456,8 +498,8 @@ void dex_file_close(DexFile *dex)
     }
     free(dex->code_off);
     free(dex->code);
-    free(dex->field_has_int);
-    free(dex->field_int);
+    free(dex->field_has_value);
+    free(dex->field_value);
     dex_cache_destroy(dex);
     free(dex->bytes);
     free(dex);
@@ -677,10 +719,8 @@ int dex_file_visit_classes(const DexFile *dex,
                 } else {
                     statics[static_count].kind = ART_FIELD_INT;
                 }
-                if (statics[static_count].kind == ART_FIELD_INT && dex->field_has_int != NULL &&
-                    dex->field_has_int[field_idx]) {
-                    statics[static_count].value.kind = DEX_ENCODED_INT;
-                    statics[static_count].value.i = dex->field_int[field_idx];
+                if (dex->field_has_value != NULL && dex->field_has_value[field_idx]) {
+                    statics[static_count].value = dex->field_value[field_idx];
                 }
                 static_count++;
             }
@@ -821,12 +861,12 @@ const char *dex_file_type(const DexFile *dex, uint32_t type_idx)
 
 int dex_file_field_int(const DexFile *dex, uint32_t field_idx, int32_t *out_value)
 {
-    if (dex == NULL || field_idx >= dex->field_ids_size || dex->field_has_int == NULL ||
-        !dex->field_has_int[field_idx]) {
+    if (dex == NULL || field_idx >= dex->field_ids_size || dex->field_has_value == NULL ||
+        !dex->field_has_value[field_idx] || dex->field_value[field_idx].kind != DEX_ENCODED_INT) {
         return -1;
     }
     if (out_value != NULL) {
-        *out_value = dex->field_int[field_idx];
+        *out_value = dex->field_value[field_idx].i;
     }
     return 0;
 }

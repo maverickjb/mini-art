@@ -30,6 +30,7 @@ struct ArtClass {
     uint32_t methods_count;
     ArtField *static_fields;
     JValue *static_values;
+    struct DexEncodedValue *static_initial;
     uint32_t static_count;
     int init_state;
     int kind;
@@ -83,6 +84,7 @@ void class_linker_destroy(ClassLinker *linker)
         free(linker->all->methods);
         free(linker->all->static_fields);
         free(linker->all->static_values);
+        free(linker->all->static_initial);
         free(linker->all);
         linker->all = next;
     }
@@ -152,8 +154,10 @@ static void clear_statics(ArtClass *klass)
 {
     free(klass->static_fields);
     free(klass->static_values);
+    free(klass->static_initial);
     klass->static_fields = NULL;
     klass->static_values = NULL;
+    klass->static_initial = NULL;
     klass->static_count = 0;
 }
 
@@ -161,14 +165,17 @@ static int fill_statics(ArtClass *klass, const struct DexStaticField *statics, u
 {
     ArtField *fields = NULL;
     JValue *values = NULL;
+    struct DexEncodedValue *initial = NULL;
     uint32_t i;
 
     if (count > 0) {
         fields = calloc(count, sizeof(*fields));
         values = calloc(count, sizeof(*values));
-        if (fields == NULL || values == NULL) {
+        initial = calloc(count, sizeof(*initial));
+        if (fields == NULL || values == NULL || initial == NULL) {
             free(fields);
             free(values);
+            free(initial);
             return -1;
         }
         for (i = 0; i < count; i++) {
@@ -177,14 +184,19 @@ static int fill_statics(ArtClass *klass, const struct DexStaticField *statics, u
             fields[i].type = statics[i].type;
             fields[i].slot = i;
             fields[i].kind = statics[i].kind;
+            initial[i] = statics[i].value;
             if (statics[i].kind == ART_FIELD_INT && statics[i].value.kind == DEX_ENCODED_INT) {
                 values[i].i = statics[i].value.i;
+            } else if (statics[i].kind == ART_FIELD_WIDE &&
+                       statics[i].value.kind == DEX_ENCODED_WIDE) {
+                values[i].j = statics[i].value.j;
             }
         }
     }
     clear_statics(klass);
     klass->static_fields = fields;
     klass->static_values = values;
+    klass->static_initial = initial;
     klass->static_count = count;
     return 0;
 }
@@ -351,6 +363,7 @@ static int define_static_value(ClassLinker *linker, const char *descriptor, cons
     ArtClass *klass;
     ArtField *fields;
     JValue *values;
+    struct DexEncodedValue *initial;
     uint32_t count;
     uint32_t i;
 
@@ -384,7 +397,13 @@ static int define_static_value(ClassLinker *linker, const char *descriptor, cons
     if (values == NULL) {
         return -1;
     }
+    initial = realloc(klass->static_initial, count * sizeof(*initial));
+    if (initial == NULL) {
+        klass->static_values = values;
+        return -1;
+    }
     memset(&fields[count - 1], 0, sizeof(fields[count - 1]));
+    memset(&initial[count - 1], 0, sizeof(initial[count - 1]));
     fields[count - 1].declaring = klass;
     fields[count - 1].name = name;
     fields[count - 1].type = type;
@@ -393,6 +412,7 @@ static int define_static_value(ClassLinker *linker, const char *descriptor, cons
     values[count - 1] = value;
     klass->static_fields = fields;
     klass->static_values = values;
+    klass->static_initial = initial;
     klass->static_count = count;
     return 0;
 }
@@ -555,6 +575,7 @@ static void rollback_to(ClassLinker *linker, ArtClass *previous_head)
         free(doomed->methods);
         free(doomed->static_fields);
         free(doomed->static_values);
+        free(doomed->static_initial);
         free(doomed);
         doomed = next;
     }
