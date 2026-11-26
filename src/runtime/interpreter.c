@@ -139,6 +139,11 @@ enum {
     OP_INVOKE_DIRECT = 0x70,
     OP_INVOKE_STATIC = 0x71,
     OP_INVOKE_INTERFACE = 0x72,
+    OP_INVOKE_VIRTUAL_RANGE = 0x74,
+    OP_INVOKE_SUPER_RANGE = 0x75,
+    OP_INVOKE_DIRECT_RANGE = 0x76,
+    OP_INVOKE_STATIC_RANGE = 0x77,
+    OP_INVOKE_INTERFACE_RANGE = 0x78,
     OP_NEG_DOUBLE = 0x80,
     OP_INT_TO_LONG = 0x81,
     OP_INT_TO_FLOAT = 0x82,
@@ -357,67 +362,58 @@ static const char *invoke_kind(uint8_t opcode)
     if (opcode == OP_INVOKE_VIRTUAL) {
         return "invoke-virtual";
     }
+    if (opcode == OP_INVOKE_VIRTUAL_RANGE) {
+        return "invoke-virtual/range";
+    }
     if (opcode == OP_INVOKE_SUPER) {
         return "invoke-super";
+    }
+    if (opcode == OP_INVOKE_SUPER_RANGE) {
+        return "invoke-super/range";
     }
     if (opcode == OP_INVOKE_DIRECT) {
         return "invoke-direct";
     }
+    if (opcode == OP_INVOKE_DIRECT_RANGE) {
+        return "invoke-direct/range";
+    }
     if (opcode == OP_INVOKE_STATIC) {
         return "invoke-static";
+    }
+    if (opcode == OP_INVOKE_STATIC_RANGE) {
+        return "invoke-static/range";
     }
     if (opcode == OP_INVOKE_INTERFACE) {
         return "invoke-interface";
     }
+    if (opcode == OP_INVOKE_INTERFACE_RANGE) {
+        return "invoke-interface/range";
+    }
     return "invoke";
 }
 
-/* 35c: the first code unit is already consumed. The receiver of an instance
- * call is argument 0 in that encoding, so it is copied with the other args. */
-static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
+static int invoke_call(InterpreterFrame *frame, uint8_t opcode, uint16_t method_idx, JValue *args,
+                       unsigned argc)
 {
-    unsigned argc = instruction >> 12;
-    unsigned sources[5];
-    uint16_t method_idx;
-    uint16_t reg_word;
-    JValue args[5];
     ArtMethod *callee;
     ArtNativeFn fn;
-    unsigned i;
     JValue returned;
     int held;
     const char *class_desc = "?";
     const char *name = "?";
     const char *proto = "";
 
-    if (argc > 5 || fetch_u16(frame, &method_idx) != 0 || fetch_u16(frame, &reg_word) != 0) {
-        return -1;
-    }
-    sources[0] = reg_word & 0xf;
-    sources[1] = (reg_word >> 4) & 0xf;
-    sources[2] = (reg_word >> 8) & 0xf;
-    sources[3] = (reg_word >> 12) & 0xf;
-    sources[4] = (instruction >> 8) & 0xf;
-
-    memset(args, 0, sizeof(args));
-    for (i = 0; i < argc; i++) {
-        if (sources[i] >= frame->register_count) {
-            return -1;
-        }
-        args[i] = frame->registers[sources[i]];
-    }
-
-    unsigned opcode = instruction & 0xff;
-
     dex_file_method_at(art_method_dex(frame->method), method_idx, &class_desc, &name, &proto);
-    fprintf(stderr, "%s %s->%s%s\n", invoke_kind((uint8_t)opcode), class_desc, name, proto);
+    fprintf(stderr, "%s %s->%s%s\n", invoke_kind(opcode), class_desc, name, proto);
 
     switch (opcode) {
     case OP_INVOKE_SUPER:
+    case OP_INVOKE_SUPER_RANGE:
         callee = runtime_resolve_super(frame->runtime, frame->method, method_idx);
         break;
-    case OP_INVOKE_VIRTUAL: {
-        void *object = args[0].l;
+    case OP_INVOKE_VIRTUAL:
+    case OP_INVOKE_VIRTUAL_RANGE: {
+        void *object = argc > 0 ? args[0].l : NULL;
 
         if (object == NULL) {
             return -1;
@@ -433,6 +429,7 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
         break;
     }
     case OP_INVOKE_INTERFACE:
+    case OP_INVOKE_INTERFACE_RANGE:
         callee = runtime_resolve_interface(frame->runtime, java_object_class(args[0].l), name,
                                            proto);
         break;
@@ -458,6 +455,70 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
     invoke_resume(held);
     frame->result = returned;
     return 0;
+}
+
+/* 35c: the first code unit is already consumed. The receiver of an instance
+ * call is argument 0 in that encoding, so it is copied with the other args. */
+static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned argc = instruction >> 12;
+    unsigned sources[5];
+    uint16_t method_idx;
+    uint16_t reg_word;
+    JValue args[5];
+    unsigned i;
+
+    if (argc > 5 || fetch_u16(frame, &method_idx) != 0 || fetch_u16(frame, &reg_word) != 0) {
+        return -1;
+    }
+    sources[0] = reg_word & 0xf;
+    sources[1] = (reg_word >> 4) & 0xf;
+    sources[2] = (reg_word >> 8) & 0xf;
+    sources[3] = (reg_word >> 12) & 0xf;
+    sources[4] = (instruction >> 8) & 0xf;
+
+    memset(args, 0, sizeof(args));
+    for (i = 0; i < argc; i++) {
+        if (sources[i] >= frame->register_count) {
+            return -1;
+        }
+        args[i] = frame->registers[sources[i]];
+    }
+    return invoke_call(frame, (uint8_t)(instruction & 0xff), method_idx, args, argc);
+}
+
+/* 3rc: AA|op BBBB CCCC. Arguments are the contiguous registers vCCCC .. vCCCC+AA-1. */
+static int execute_invoke_range(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint8_t opcode = (uint8_t)(instruction & 0xff);
+    unsigned argc = instruction >> 8;
+    uint16_t method_idx;
+    uint16_t first;
+    JValue *args = NULL;
+    unsigned i;
+    int rc;
+
+    if (fetch_u16(frame, &method_idx) != 0 || fetch_u16(frame, &first) != 0) {
+        return -1;
+    }
+    if (opcode != OP_INVOKE_STATIC_RANGE && argc == 0) {
+        return -1;
+    }
+    if (argc > frame->register_count || (argc > 0 && first + argc > frame->register_count)) {
+        return -1;
+    }
+    if (argc > 0) {
+        args = calloc(argc, sizeof(*args));
+        if (args == NULL) {
+            return -1;
+        }
+        for (i = 0; i < argc; i++) {
+            args[i] = frame->registers[first + i];
+        }
+    }
+    rc = invoke_call(frame, opcode, method_idx, args, argc);
+    free(args);
+    return rc;
 }
 
 static int execute_return(InterpreterFrame *frame, uint16_t instruction, uint8_t opcode)
@@ -1810,6 +1871,13 @@ static int execute_method(InterpreterFrame *frame)
         case OP_INVOKE_STATIC:
         case OP_INVOKE_INTERFACE:
             failed = execute_invoke(frame, instruction) != 0;
+            break;
+        case OP_INVOKE_VIRTUAL_RANGE:
+        case OP_INVOKE_SUPER_RANGE:
+        case OP_INVOKE_DIRECT_RANGE:
+        case OP_INVOKE_STATIC_RANGE:
+        case OP_INVOKE_INTERFACE_RANGE:
+            failed = execute_invoke_range(frame, instruction) != 0;
             break;
         case OP_INT_TO_LONG:
         case OP_INT_TO_FLOAT:
