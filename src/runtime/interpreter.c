@@ -3,10 +3,60 @@
 #include "java_object.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static pthread_mutex_t invoke_mu;
+static pthread_once_t invoke_once = PTHREAD_ONCE_INIT;
+static _Thread_local int invoke_depth;
+
+static void invoke_mu_init(void)
+{
+    pthread_mutex_init(&invoke_mu, NULL);
+}
+
+static void invoke_lock(void)
+{
+    pthread_once(&invoke_once, invoke_mu_init);
+    if (invoke_depth++ == 0) {
+        pthread_mutex_lock(&invoke_mu);
+    }
+}
+
+static void invoke_unlock(void)
+{
+    if (invoke_depth == 0) {
+        return;
+    }
+    if (--invoke_depth == 0) {
+        pthread_mutex_unlock(&invoke_mu);
+    }
+}
+
+/* A nested frame only increments invoke_depth. Unlocking once before join or
+ * sleep would leave the outer frame holding invoke_mu, and the worker would
+ * block in runtime_invoke forever. Drop every hold owned by this thread. */
+static int invoke_suspend(void)
+{
+    int saved = invoke_depth;
+
+    if (saved > 0) {
+        invoke_depth = 0;
+        pthread_mutex_unlock(&invoke_mu);
+    }
+    return saved;
+}
+
+static void invoke_resume(int saved)
+{
+    if (saved > 0) {
+        pthread_mutex_lock(&invoke_mu);
+        invoke_depth = saved;
+    }
+}
 
 enum {
     OP_NOP = 0x00,
@@ -20,6 +70,8 @@ enum {
     OP_MOVE = 0x01,
     OP_MOVE_WIDE = 0x04,
     OP_MOVE_OBJECT = 0x07,
+    OP_MOVE_OBJECT_FROM16 = 0x08,
+    OP_MOVE_OBJECT_16 = 0x09,
     OP_CONST_4 = 0x12,
     OP_CONST_16 = 0x13,
     OP_CONST = 0x14,
@@ -333,6 +385,7 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
     ArtNativeFn fn;
     unsigned i;
     JValue returned;
+    int held;
     const char *class_desc = "?";
     const char *name = "?";
     const char *proto = "";
@@ -391,14 +444,18 @@ static int execute_invoke(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     memset(&returned, 0, sizeof(returned));
+    held = invoke_suspend();
     if (art_method_is_native(callee)) {
         fn = art_method_native(callee);
         if (fn == NULL || fn(frame->runtime, args, argc, &returned) != 0) {
+            invoke_resume(held);
             return -1;
         }
     } else if (interpreter_invoke(frame->runtime, callee, args, &returned) != 0) {
+        invoke_resume(held);
         return -1;
     }
+    invoke_resume(held);
     frame->result = returned;
     return 0;
 }
@@ -456,11 +513,40 @@ static int execute_move(InterpreterFrame *frame, uint16_t instruction, int wide)
     unsigned src = instruction >> 12;
     JValue value;
 
+    if (wide && (dest + 1 >= frame->register_count || src + 1 >= frame->register_count)) {
+        return -1;
+    }
     if (read_register(frame, src, &value) != 0 || set_register(frame, dest, value) != 0) {
         return -1;
     }
-    if (wide && dest + 1 < frame->register_count && src + 1 < frame->register_count) {
+    if (wide) {
         frame->registers[dest + 1] = frame->registers[src + 1];
+    }
+    return 0;
+}
+
+/* 22x is AA|op BBBB. 32x is 00|op AAAA BBBB. Both copy one object register. */
+static int execute_move_object_22x_32x(InterpreterFrame *frame, uint16_t instruction, int format_32x)
+{
+    uint16_t word;
+    unsigned dest;
+    unsigned src;
+    JValue value;
+
+    if (format_32x) {
+        if (fetch_u16(frame, &word) != 0) {
+            return -1;
+        }
+        dest = word;
+    } else {
+        dest = instruction >> 8;
+    }
+    if (fetch_u16(frame, &word) != 0) {
+        return -1;
+    }
+    src = word;
+    if (read_register(frame, src, &value) != 0 || set_register(frame, dest, value) != 0) {
+        return -1;
     }
     return 0;
 }
@@ -1574,6 +1660,12 @@ static int execute_method(InterpreterFrame *frame)
         case OP_MOVE_OBJECT:
             failed = execute_move(frame, instruction, 0) != 0;
             break;
+        case OP_MOVE_OBJECT_FROM16:
+            failed = execute_move_object_22x_32x(frame, instruction, 0) != 0;
+            break;
+        case OP_MOVE_OBJECT_16:
+            failed = execute_move_object_22x_32x(frame, instruction, 1) != 0;
+            break;
         case OP_MOVE_WIDE:
             failed = execute_move(frame, instruction, 1) != 0;
             break;
@@ -1851,8 +1943,10 @@ int interpreter_invoke(Runtime *rt, ArtMethod *method, JValue *args, JValue *res
     if (rt == NULL || method == NULL || art_method_is_native(method)) {
         return -1;
     }
+    invoke_lock();
     code = dex_file_code_item(art_method_dex(method), art_method_id(method));
     if (code == NULL) {
+        invoke_unlock();
         return -1;
     }
     dex_file_method_at(art_method_dex(method), art_method_id(method), &class_desc, &name, &proto);
@@ -1865,10 +1959,12 @@ int interpreter_invoke(Runtime *rt, ArtMethod *method, JValue *args, JValue *res
     frame.register_count = code_item_registers(code);
     incoming = code_item_ins(code);
     if (frame.insns == NULL || incoming > frame.register_count || (incoming > 0 && args == NULL)) {
+        invoke_unlock();
         return -1;
     }
     frame.registers = calloc(frame.register_count ? frame.register_count : 1, sizeof(*frame.registers));
     if (frame.registers == NULL) {
+        invoke_unlock();
         return -1;
     }
     for (i = 0; i < incoming; i++) {
@@ -1880,5 +1976,6 @@ int interpreter_invoke(Runtime *rt, ArtMethod *method, JValue *args, JValue *res
         *result = frame.result;
     }
     free(frame.registers);
+    invoke_unlock();
     return rc;
 }
