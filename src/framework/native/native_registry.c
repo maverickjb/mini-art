@@ -1,5 +1,8 @@
 #include "native_internal.h"
 
+#include <stdio.h>
+#include <string.h>
+
 int native_bind(Runtime *rt, const struct NativeBinding *rows, size_t count)
 {
     size_t i;
@@ -10,6 +13,28 @@ int native_bind(Runtime *rt, const struct NativeBinding *rows, size_t count)
             return -1;
         }
     }
+    return 0;
+}
+
+static int native_enum_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue name;
+    JValue ordinal;
+
+    (void)rt;
+    (void)result;
+    if (argc < 3 || !java_object_check(args[0].l) || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    memset(&name, 0, sizeof(name));
+    name.l = args[1].l;
+    memset(&ordinal, 0, sizeof(ordinal));
+    ordinal.i = args[2].i;
+    if (java_object_set_field(args[0].l, "name", name) != 0 ||
+        java_object_set_field(args[0].l, "ordinal", ordinal) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "Enum.<init> %s %d\n", java_object_text(args[1].l), args[2].i);
     return 0;
 }
 
@@ -28,6 +53,7 @@ int native_register_framework(Runtime *rt)
 {
     static const struct NativeBinding core[] = {
         {"Ljava/lang/Object;", "<init>", "()V", native_return_void},
+        {"Ljava/lang/Enum;", "<init>", "(Ljava/lang/String;I)V", native_enum_init},
         {"Ljava/lang/RuntimeException;", "<init>", "(Ljava/lang/String;)V", native_exception_init},
     };
 
