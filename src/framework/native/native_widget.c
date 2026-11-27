@@ -285,6 +285,51 @@ static int native_paint_init(Runtime *rt, const JValue *args, uint32_t argc, JVa
     return 0;
 }
 
+static int native_linear_gradient_init(Runtime *rt, const JValue *args, uint32_t argc,
+                                       JValue *result)
+{
+    JValue field;
+
+    (void)rt;
+    (void)result;
+    if (argc < 8 || !java_object_check(args[0].l) || !java_object_check(args[7].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.f = args[1].f;
+    if (java_object_set_field(args[0].l, "x0", field) != 0) {
+        return -1;
+    }
+    field.f = args[2].f;
+    if (java_object_set_field(args[0].l, "y0", field) != 0) {
+        return -1;
+    }
+    field.f = args[3].f;
+    if (java_object_set_field(args[0].l, "x1", field) != 0) {
+        return -1;
+    }
+    field.f = args[4].f;
+    if (java_object_set_field(args[0].l, "y1", field) != 0) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.i = args[5].i;
+    if (java_object_set_field(args[0].l, "color0", field) != 0) {
+        return -1;
+    }
+    field.i = args[6].i;
+    if (java_object_set_field(args[0].l, "color1", field) != 0) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.l = args[7].l;
+    if (java_object_set_field(args[0].l, "tileMode", field) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "LinearGradient.<init>\n");
+    return 0;
+}
+
 static int native_rectf_init(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -333,6 +378,8 @@ int native_register_widget(Runtime *rt)
         {"Landroid/view/Surface;", "isValid", "()Z", native_surface_is_valid},
         {"Landroid/view/View;", "setFocusable", "(Z)V", native_view_set_focusable},
         {"Landroid/graphics/Paint;", "<init>", "(I)V", native_paint_init},
+        {"Landroid/graphics/LinearGradient;", "<init>",
+         "(FFFFIILandroid/graphics/Shader$TileMode;)V", native_linear_gradient_init},
         {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
     };
 
