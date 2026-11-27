@@ -13,6 +13,35 @@ static lv_indev_t *pointer;
 static lv_obj_t *canvas_layer;
 static char window_title[256];
 static int window_title_set;
+static void (*touch_handler)(float x, float y, int action);
+static int touch_down;
+static lv_point_t touch_point;
+
+void ui_set_touch_handler(void (*fn)(float x, float y, int action))
+{
+    touch_handler = fn;
+}
+
+static void poll_touch(void)
+{
+    lv_point_t point;
+    int down;
+
+    if (pointer == NULL || touch_handler == NULL) {
+        return;
+    }
+    lv_indev_get_point(pointer, &point);
+    down = lv_indev_get_state(pointer) == LV_INDEV_STATE_PRESSED;
+    if (down && !touch_down) {
+        touch_handler((float)point.x, (float)point.y, 0);
+    } else if (down && (point.x != touch_point.x || point.y != touch_point.y)) {
+        touch_handler((float)point.x, (float)point.y, 2);
+    } else if (!down && touch_down) {
+        touch_handler((float)touch_point.x, (float)touch_point.y, 1);
+    }
+    touch_down = down;
+    touch_point = point;
+}
 
 void ui_set_title(const char *title)
 {
@@ -481,6 +510,7 @@ void ui_run(void)
     while (window_id != 0 && SDL_GetWindowFromID(window_id) != NULL) {
         ui_canvas_apply();
         lv_timer_handler();
+        poll_touch();
         SDL_Delay(5);
     }
     display = NULL;

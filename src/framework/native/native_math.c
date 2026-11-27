@@ -1,6 +1,7 @@
 #include "native_internal.h"
 
 #include <math.h>
+#include <stdio.h>
 
 static int native_math1(Runtime *rt, const JValue *args, uint32_t argc, JValue *result,
                         double (*fn)(double))
@@ -84,6 +85,17 @@ static int native_math_pow(Runtime *rt, const JValue *args, uint32_t argc, JValu
     return 0;
 }
 
+static int native_math_hypot(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    if (argc < 3 || result == NULL) {
+        return -1;
+    }
+    result->d = hypot(args[0].d, args[2].d);
+    fprintf(stderr, "Math.hypot %g\n", result->d);
+    return 0;
+}
+
 int native_register_math(Runtime *rt)
 {
     static const struct NativeBinding rows[] = {
@@ -95,6 +107,7 @@ int native_register_math(Runtime *rt)
         {"Ljava/lang/Math;", "log", "(D)D", native_math_log},
         {"Ljava/lang/Math;", "log10", "(D)D", native_math_log10},
         {"Ljava/lang/Math;", "pow", "(DD)D", native_math_pow},
+        {"Ljava/lang/Math;", "hypot", "(DD)D", native_math_hypot},
         {"Ljava/lang/Math;", "min", "(FF)F", native_math_min_float},
     };
 

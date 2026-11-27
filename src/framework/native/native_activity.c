@@ -10,6 +10,55 @@ static Runtime *current_rt;
 static JavaObject *content_views[256];
 static int content_view_count;
 static int content_open;
+static JavaObject *touch_view;
+static JavaObject *touch_event;
+
+static void on_view_touch(float x, float y, int action)
+{
+    ArtMethod *method;
+    JValue args[2];
+    JValue result;
+    JValue field;
+    const char *kind = action == 0 ? "down" : action == 1 ? "up" : "move";
+
+    if (current_rt == NULL || !java_object_check(touch_view)) {
+        return;
+    }
+    if (!java_object_check(touch_event)) {
+        touch_event = java_object_new(current_rt, "Landroid/view/MotionEvent;");
+        if (touch_event == NULL) {
+            return;
+        }
+    }
+    memset(&field, 0, sizeof(field));
+    field.f = x;
+    if (java_object_set_field(touch_event, "x", field) != 0) {
+        return;
+    }
+    field.f = y;
+    if (java_object_set_field(touch_event, "y", field) != 0) {
+        return;
+    }
+    memset(&field, 0, sizeof(field));
+    field.i = action;
+    if (java_object_set_field(touch_event, "action", field) != 0) {
+        return;
+    }
+    method = runtime_find_method(current_rt, java_object_class(touch_view), "onTouchEvent",
+                                 "(Landroid/view/MotionEvent;)Z");
+    if (method == NULL) {
+        fprintf(stderr, "no onTouchEvent on %s\n", java_object_class(touch_view));
+        return;
+    }
+    memset(args, 0, sizeof(args));
+    memset(&result, 0, sizeof(result));
+    args[0].l = touch_view;
+    args[1].l = touch_event;
+    fprintf(stderr, "onTouchEvent %s %g %g\n", kind, x, y);
+    if (runtime_invoke(current_rt, method, args, &result) != 0) {
+        fprintf(stderr, "onTouchEvent failed\n");
+    }
+}
 
 int native_return_void(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
@@ -307,6 +356,8 @@ static int native_set_content_view_object(Runtime *rt, const JValue *args, uint3
     }
     content_open = 1;
     fprintf(stderr, "setContentView %s\n", java_object_class(args[1].l));
+    ui_set_touch_handler(on_view_touch);
+    touch_view = args[1].l;
     return surface_created(rt, args[1].l);
 }
 
