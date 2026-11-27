@@ -4,10 +4,13 @@
 #include "lvgl.h"
 #include "SDL2/SDL.h"
 
+#include <pthread.h>
 #include <stdio.h>
+#include <string.h>
 
 static lv_display_t *display;
 static lv_indev_t *pointer;
+static lv_obj_t *canvas_layer;
 
 static void attach_cursor(void)
 {
@@ -142,6 +145,7 @@ void *ui_content_begin(void)
     }
     screen = lv_screen_active();
     lv_obj_clean(screen);
+    canvas_layer = NULL;
     box_style(screen, 0);
     lv_obj_set_flex_grow(screen, 0);
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
@@ -241,6 +245,215 @@ void ui_content_on_click(void (*fn)(void *user))
     content_click = fn;
 }
 
+enum {
+    CANVAS_RECT = 1,
+    CANVAS_TEXT = 2
+};
+
+#define CANVAS_CMD_MAX 1024
+
+struct CanvasCmd {
+    int kind;
+    float left;
+    float top;
+    float right;
+    float bottom;
+    uint32_t color;
+    uint32_t color1;
+    char text[96];
+};
+
+struct CanvasFrame {
+    struct CanvasCmd cmds[CANVAS_CMD_MAX];
+    int count;
+};
+
+static pthread_mutex_t canvas_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct CanvasFrame canvas_building;
+static struct CanvasFrame canvas_pending;
+static struct CanvasFrame canvas_shown;
+static int canvas_pending_ready;
+
+static void ui_canvas_apply(void);
+
+static struct CanvasCmd *canvas_push(int kind)
+{
+    struct CanvasCmd *cmd;
+
+    if (canvas_building.count >= CANVAS_CMD_MAX) {
+        return NULL;
+    }
+    cmd = &canvas_building.cmds[canvas_building.count++];
+    memset(cmd, 0, sizeof(*cmd));
+    cmd->kind = kind;
+    return cmd;
+}
+
+void ui_canvas_begin(void)
+{
+    pthread_mutex_lock(&canvas_mu);
+    canvas_building.count = 0;
+    pthread_mutex_unlock(&canvas_mu);
+}
+
+void ui_canvas_rect(float left, float top, float right, float bottom, uint32_t color,
+                    uint32_t color1)
+{
+    struct CanvasCmd *cmd;
+
+    pthread_mutex_lock(&canvas_mu);
+    cmd = canvas_push(CANVAS_RECT);
+    if (cmd != NULL) {
+        cmd->left = left;
+        cmd->top = top;
+        cmd->right = right;
+        cmd->bottom = bottom;
+        cmd->color = color;
+        cmd->color1 = color1;
+    }
+    pthread_mutex_unlock(&canvas_mu);
+}
+
+void ui_canvas_text(const char *text, float x, float y, uint32_t color)
+{
+    struct CanvasCmd *cmd;
+
+    pthread_mutex_lock(&canvas_mu);
+    cmd = canvas_push(CANVAS_TEXT);
+    if (cmd != NULL) {
+        cmd->left = x;
+        cmd->top = y;
+        cmd->color = color;
+        cmd->color1 = color;
+        if (text != NULL) {
+            strncpy(cmd->text, text, sizeof(cmd->text) - 1);
+        }
+    }
+    pthread_mutex_unlock(&canvas_mu);
+}
+
+void ui_canvas_post(void)
+{
+    pthread_mutex_lock(&canvas_mu);
+    canvas_pending = canvas_building;
+    canvas_pending_ready = 1;
+    canvas_building.count = 0;
+    pthread_mutex_unlock(&canvas_mu);
+}
+
+static uint32_t mix_color(uint32_t start, uint32_t end, int step, int steps)
+{
+    uint32_t mixed = 0;
+    int shift;
+
+    if (steps <= 1) {
+        return start;
+    }
+    for (shift = 0; shift < 32; shift += 8) {
+        int from = (int)((start >> shift) & 0xff);
+        int to = (int)((end >> shift) & 0xff);
+        int channel = from + (to - from) * step / (steps - 1);
+        mixed |= (uint32_t)channel << shift;
+    }
+    return mixed;
+}
+
+static void paint_rect(float left, float top, float right, float bottom, uint32_t color)
+{
+    lv_obj_t *box;
+    int x = (int)left;
+    int y = (int)top;
+    int width = (int)(right - left);
+    int height = (int)(bottom - top);
+
+    if (width < 1 || height < 1) {
+        return;
+    }
+    box = lv_obj_create(canvas_layer);
+    lv_obj_set_flag(box, LV_OBJ_FLAG_IGNORE_LAYOUT, true);
+    lv_obj_set_flag(box, LV_OBJ_FLAG_SCROLLABLE, false);
+    lv_obj_set_pos(box, x, y);
+    lv_obj_set_size(box, width, height);
+    lv_obj_set_style_radius(box, 0, 0);
+    lv_obj_set_style_border_width(box, 0, 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+    lv_obj_set_style_bg_color(box, lv_color_hex(color & 0x00ffffffu), 0);
+    lv_obj_set_style_bg_opa(box, (lv_opa_t)((color >> 24) & 0xffu), 0);
+}
+
+static void paint_command(const struct CanvasCmd *cmd)
+{
+    if (cmd->kind == CANVAS_TEXT) {
+        lv_obj_t *label;
+        int y = (int)cmd->top - 28;
+
+        label = lv_label_create(canvas_layer);
+        lv_label_set_text(label, cmd->text);
+        lv_obj_set_flag(label, LV_OBJ_FLAG_IGNORE_LAYOUT, true);
+        lv_obj_set_pos(label, (int)cmd->left, y < 0 ? 0 : y);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(cmd->color & 0x00ffffffu), 0);
+        return;
+    }
+    if (cmd->color == cmd->color1) {
+        paint_rect(cmd->left, cmd->top, cmd->right, cmd->bottom, cmd->color);
+        return;
+    }
+    {
+        enum { BANDS = 8 };
+        float span = cmd->bottom - cmd->top;
+        int band;
+
+        for (band = 0; band < BANDS; band++) {
+            float band_top = cmd->top + span * (float)band / (float)BANDS;
+            float band_bottom = cmd->top + span * (float)(band + 1) / (float)BANDS;
+            paint_rect(cmd->left, band_top, cmd->right, band_bottom,
+                       mix_color(cmd->color, cmd->color1, band, BANDS));
+        }
+    }
+}
+
+static void ensure_canvas_layer(void)
+{
+    if (canvas_layer != NULL) {
+        return;
+    }
+    canvas_layer = lv_obj_create(lv_screen_active());
+    lv_obj_set_flag(canvas_layer, LV_OBJ_FLAG_IGNORE_LAYOUT, true);
+    lv_obj_set_flag(canvas_layer, LV_OBJ_FLAG_SCROLLABLE, false);
+    lv_obj_set_pos(canvas_layer, 0, 0);
+    lv_obj_set_size(canvas_layer, 480, 800);
+    lv_obj_set_style_bg_opa(canvas_layer, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(canvas_layer, 0, 0);
+    lv_obj_set_style_pad_all(canvas_layer, 0, 0);
+    lv_obj_set_style_radius(canvas_layer, 0, 0);
+}
+
+static void ui_canvas_apply(void)
+{
+    int ready = 0;
+    int i;
+
+    if (display == NULL) {
+        return;
+    }
+    pthread_mutex_lock(&canvas_mu);
+    if (canvas_pending_ready) {
+        canvas_shown = canvas_pending;
+        canvas_pending_ready = 0;
+        ready = 1;
+    }
+    pthread_mutex_unlock(&canvas_mu);
+    if (!ready) {
+        return;
+    }
+    ensure_canvas_layer();
+    lv_obj_clean(canvas_layer);
+    for (i = 0; i < canvas_shown.count; i++) {
+        paint_command(&canvas_shown.cmds[i]);
+    }
+}
+
 void ui_run(void)
 {
     SDL_Window *window;
@@ -253,6 +466,7 @@ void ui_run(void)
     window_id = window != NULL ? SDL_GetWindowID(window) : 0;
     lv_refr_now(display);
     while (window_id != 0 && SDL_GetWindowFromID(window_id) != NULL) {
+        ui_canvas_apply();
         lv_timer_handler();
         SDL_Delay(5);
     }

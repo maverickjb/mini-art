@@ -196,6 +196,7 @@ static int native_surface_holder_lock_canvas(Runtime *rt, const JValue *args, ui
     }
     fprintf(stderr, "SurfaceHolder.lockCanvas\n");
     result->l = stored.l;
+    ui_canvas_begin();
     return 0;
 }
 
@@ -208,6 +209,7 @@ static int native_surface_holder_unlock_canvas(Runtime *rt, const JValue *args, 
         return -1;
     }
     fprintf(stderr, "SurfaceHolder.unlockCanvasAndPost\n");
+    ui_canvas_post();
     return 0;
 }
 
@@ -247,6 +249,45 @@ static int native_canvas_get_height(Runtime *rt, const JValue *args, uint32_t ar
     return 0;
 }
 
+static uint32_t paint_argb(JavaObject *paint, uint32_t *second)
+{
+    JValue field;
+    uint32_t color = 0xffffffffu;
+    uint32_t other = color;
+
+    memset(&field, 0, sizeof(field));
+    if (java_object_get_field(paint, "shader", &field) == 0 && java_object_check(field.l)) {
+        JValue first;
+        JValue next;
+
+        memset(&first, 0, sizeof(first));
+        memset(&next, 0, sizeof(next));
+        java_object_get_field(field.l, "color0", &first);
+        java_object_get_field(field.l, "color1", &next);
+        color = (uint32_t)first.i | 0xff000000u;
+        other = (uint32_t)next.i | 0xff000000u;
+    } else {
+        memset(&field, 0, sizeof(field));
+        java_object_get_field(paint, "color", &field);
+        color = (uint32_t)field.i;
+        if ((color & 0xff000000u) == 0) {
+            color |= 0xff000000u;
+        }
+        other = color;
+    }
+    memset(&field, 0, sizeof(field));
+    java_object_get_field(paint, "alpha", &field);
+    if (field.i != 0) {
+        uint32_t alpha = ((uint32_t)field.i & 0xffu) << 24;
+        color = (color & 0x00ffffffu) | alpha;
+        other = (other & 0x00ffffffu) | alpha;
+    }
+    if (second != NULL) {
+        *second = other;
+    }
+    return color;
+}
+
 static int native_canvas_draw_rect(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JValue field;
@@ -277,6 +318,11 @@ static int native_canvas_draw_rect(Runtime *rt, const JValue *args, uint32_t arg
     field.l = args[5].l;
     if (java_object_set_field(args[0].l, "paint", field) != 0) {
         return -1;
+    }
+    {
+        uint32_t second = 0;
+        uint32_t color = paint_argb(args[5].l, &second);
+        ui_canvas_rect(args[1].f, args[2].f, args[3].f, args[4].f, color, second);
     }
     fprintf(stderr, "Canvas.drawRect %g %g %g %g\n", args[1].f, args[2].f, args[3].f, args[4].f);
     return 0;
@@ -311,6 +357,7 @@ static int native_canvas_draw_text(Runtime *rt, const JValue *args, uint32_t arg
     if (java_object_set_field(args[0].l, "textPaint", field) != 0) {
         return -1;
     }
+    ui_canvas_text(java_object_text(args[1].l), args[2].f, args[3].f, paint_argb(args[4].l, NULL));
     fprintf(stderr, "Canvas.drawText %s %g %g\n", java_object_text(args[1].l), args[2].f, args[3].f);
     return 0;
 }

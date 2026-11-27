@@ -12,6 +12,11 @@ void *ui_content_label(void *parent, const char *text);
 void *ui_content_button(void *parent, const char *text, void *user);
 void ui_content_set_text(void *widget, const char *text);
 void ui_content_on_click(void (*fn)(void *user));
+void ui_canvas_begin(void);
+void ui_canvas_rect(float left, float top, float right, float bottom, uint32_t color,
+                    uint32_t color1);
+void ui_canvas_text(const char *text, float x, float y, uint32_t color);
+void ui_canvas_post(void);
 void ui_run(void);
 
 #endif
