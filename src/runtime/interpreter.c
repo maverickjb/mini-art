@@ -90,6 +90,11 @@ enum {
     OP_THROW = 0x27,
     OP_GOTO = 0x28,
     OP_GOTO_16 = 0x29,
+    OP_CMPL_FLOAT = 0x2d,
+    OP_CMPG_FLOAT = 0x2e,
+    OP_CMPL_DOUBLE = 0x2f,
+    OP_CMPG_DOUBLE = 0x30,
+    OP_CMP_LONG = 0x31,
     OP_IF_EQ = 0x32,
     OP_IF_NE = 0x33,
     OP_IF_LT = 0x34,
@@ -1078,6 +1083,64 @@ static int compare_if(uint8_t opcode, int32_t left, int32_t right)
     }
 }
 
+/* 23x. vAA receives -1, 0, or 1. cmpl biases a NaN toward -1; cmpg biases it toward 1. */
+static int compare_float_values(double left, double right, int nan_bias)
+{
+    if (isnan(left) || isnan(right)) {
+        return nan_bias;
+    }
+    if (left == right) {
+        return 0;
+    }
+    return left < right ? -1 : 1;
+}
+
+static int execute_cmp(InterpreterFrame *frame, uint16_t instruction)
+{
+    uint8_t opcode = instruction & 0xff;
+    unsigned dest = instruction >> 8;
+    uint16_t regs;
+    unsigned left_reg;
+    unsigned right_reg;
+    int result;
+
+    if (fetch_u16(frame, &regs) != 0) {
+        return -1;
+    }
+    left_reg = regs & 0xff;
+    right_reg = regs >> 8;
+    if (dest >= frame->register_count || left_reg >= frame->register_count ||
+        right_reg >= frame->register_count) {
+        return -1;
+    }
+    switch (opcode) {
+    case OP_CMP_LONG: {
+        int64_t left = frame->registers[left_reg].j;
+        int64_t right = frame->registers[right_reg].j;
+
+        if (left == right) {
+            result = 0;
+        } else {
+            result = left < right ? -1 : 1;
+        }
+        break;
+    }
+    case OP_CMPL_FLOAT:
+    case OP_CMPG_FLOAT:
+        result = compare_float_values(frame->registers[left_reg].f, frame->registers[right_reg].f,
+                                      opcode == OP_CMPG_FLOAT ? 1 : -1);
+        break;
+    case OP_CMPL_DOUBLE:
+    case OP_CMPG_DOUBLE:
+        result = compare_float_values(frame->registers[left_reg].d, frame->registers[right_reg].d,
+                                      opcode == OP_CMPG_DOUBLE ? 1 : -1);
+        break;
+    default:
+        return -1;
+    }
+    return set_int_register(frame, dest, result);
+}
+
 static int execute_if(InterpreterFrame *frame, uint16_t instruction, uint32_t start)
 {
     uint8_t opcode = instruction & 0xff;
@@ -1973,6 +2036,13 @@ static int execute_method(InterpreterFrame *frame)
             if (!failed) {
                 branch_to(frame, start, sign16(skipped));
             }
+            break;
+        case OP_CMPL_FLOAT:
+        case OP_CMPG_FLOAT:
+        case OP_CMPL_DOUBLE:
+        case OP_CMPG_DOUBLE:
+        case OP_CMP_LONG:
+            failed = execute_cmp(frame, instruction) != 0;
             break;
         case OP_IF_EQ:
         case OP_IF_NE:
