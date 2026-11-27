@@ -193,6 +193,17 @@ enum {
     OP_SHL_INT_2ADDR = 0xb8,
     OP_SHR_INT_2ADDR = 0xb9,
     OP_USHR_INT_2ADDR = 0xba,
+    OP_ADD_LONG_2ADDR = 0xbb,
+    OP_SUB_LONG_2ADDR = 0xbc,
+    OP_MUL_LONG_2ADDR = 0xbd,
+    OP_DIV_LONG_2ADDR = 0xbe,
+    OP_REM_LONG_2ADDR = 0xbf,
+    OP_AND_LONG_2ADDR = 0xc0,
+    OP_OR_LONG_2ADDR = 0xc1,
+    OP_XOR_LONG_2ADDR = 0xc2,
+    OP_SHL_LONG_2ADDR = 0xc3,
+    OP_SHR_LONG_2ADDR = 0xc4,
+    OP_USHR_LONG_2ADDR = 0xc5,
     OP_ADD_INT_LIT16 = 0xd0,
     OP_RSUB_INT = 0xd1,
     OP_MUL_INT_LIT16 = 0xd2,
@@ -1338,6 +1349,21 @@ static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
+enum {
+    EXEC_OK = 0,
+    EXEC_ARITHMETIC = 1,
+    EXEC_INVALID = -1
+};
+
+/* Placeholder until a pending ArithmeticException can be delivered to a handler. */
+static int report_op(int status)
+{
+    if (status == EXEC_ARITHMETIC) {
+        fprintf(stderr, "ArithmeticException\n");
+    }
+    return status == EXEC_OK ? 0 : -1;
+}
+
 /* 23x and 12x integer arithmetic. op is the /2addr opcode. Shifts use the low 5 bits. */
 static int apply_int_op(int32_t *left_out, int32_t right, uint8_t op)
 {
@@ -1357,7 +1383,7 @@ static int apply_int_op(int32_t *left_out, int32_t right, uint8_t op)
     case OP_DIV_INT_2ADDR:
     case OP_REM_INT_2ADDR:
         if (right == 0) {
-            return -1;
+            return EXEC_ARITHMETIC;
         }
         if (left == INT32_MIN && right == -1) {
             left = op == OP_DIV_INT_2ADDR ? INT32_MIN : 0;
@@ -1389,10 +1415,10 @@ static int apply_int_op(int32_t *left_out, int32_t right, uint8_t op)
         left = (int32_t)((uint32_t)left >> ((unsigned)right & 31u));
         break;
     default:
-        return -1;
+        return EXEC_INVALID;
     }
     *left_out = left;
-    return 0;
+    return EXEC_OK;
 }
 
 /* 12x. vA = vA <op> vB. */
@@ -1406,10 +1432,87 @@ static int execute_int_2addr(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     left = frame->registers[dest].i;
-    if (apply_int_op(&left, frame->registers[src].i, instruction & 0xff) != 0) {
+    if (report_op(apply_int_op(&left, frame->registers[src].i, instruction & 0xff)) != 0) {
         return -1;
     }
     return set_int_register(frame, dest, left);
+}
+
+/* 12x long arithmetic. Shifts use the low 6 bits. */
+static int apply_long_op(int64_t *left_out, int64_t right, uint8_t op)
+{
+    int64_t left = *left_out;
+    unsigned shift;
+
+    switch (op) {
+    case OP_ADD_LONG_2ADDR:
+        left = (int64_t)((uint64_t)left + (uint64_t)right);
+        break;
+    case OP_SUB_LONG_2ADDR:
+        left = (int64_t)((uint64_t)left - (uint64_t)right);
+        break;
+    case OP_MUL_LONG_2ADDR:
+        left = (int64_t)((uint64_t)left * (uint64_t)right);
+        break;
+    case OP_DIV_LONG_2ADDR:
+    case OP_REM_LONG_2ADDR:
+        if (right == 0) {
+            return EXEC_ARITHMETIC;
+        }
+        if (left == INT64_MIN && right == -1) {
+            left = op == OP_DIV_LONG_2ADDR ? INT64_MIN : 0;
+            break;
+        }
+        left = op == OP_DIV_LONG_2ADDR ? left / right : left % right;
+        break;
+    case OP_AND_LONG_2ADDR:
+        left &= right;
+        break;
+    case OP_OR_LONG_2ADDR:
+        left |= right;
+        break;
+    case OP_XOR_LONG_2ADDR:
+        left ^= right;
+        break;
+    case OP_SHL_LONG_2ADDR:
+        left = (int64_t)((uint64_t)left << ((unsigned)right & 63u));
+        break;
+    case OP_SHR_LONG_2ADDR:
+        shift = (unsigned)right & 63u;
+        if (left < 0 && shift != 0) {
+            left = (int64_t)(((uint64_t)left >> shift) | (~0ULL << (64u - shift)));
+        } else {
+            left = (int64_t)((uint64_t)left >> shift);
+        }
+        break;
+    case OP_USHR_LONG_2ADDR:
+        left = (int64_t)((uint64_t)left >> ((unsigned)right & 63u));
+        break;
+    default:
+        return EXEC_INVALID;
+    }
+    *left_out = left;
+    return EXEC_OK;
+}
+
+/* 12x. vA = vA <op> vB. The 64-bit value lives in the named register. */
+static int execute_long_2addr(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    JValue value;
+    int64_t left;
+
+    if (dest >= frame->register_count || src >= frame->register_count) {
+        return -1;
+    }
+    left = frame->registers[dest].j;
+    if (report_op(apply_long_op(&left, frame->registers[src].j, instruction & 0xff)) != 0) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = left;
+    return set_register(frame, dest, value);
 }
 
 /* 23x. vAA = vBB <op> vCC. */
@@ -1432,7 +1535,7 @@ static int execute_int_23x(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     left = frame->registers[left_reg].i;
-    if (apply_int_op(&left, frame->registers[right_reg].i, op) != 0) {
+    if (report_op(apply_int_op(&left, frame->registers[right_reg].i, op)) != 0) {
         return -1;
     }
     return set_int_register(frame, dest, left);
@@ -1467,7 +1570,7 @@ static int execute_int_lit16(InterpreterFrame *frame, uint16_t instruction)
     case OP_DIV_INT_LIT16:
     case OP_REM_INT_LIT16:
         if (literal == 0) {
-            return -1;
+            return report_op(EXEC_ARITHMETIC);
         }
         if (value == INT32_MIN && literal == -1) {
             value = opcode == OP_DIV_INT_LIT16 ? INT32_MIN : 0;
@@ -1522,7 +1625,7 @@ static int execute_int_lit8(InterpreterFrame *frame, uint16_t instruction)
     case OP_DIV_INT_LIT8:
     case OP_REM_INT_LIT8:
         if (literal == 0) {
-            return -1;
+            return report_op(EXEC_ARITHMETIC);
         }
         if (value == INT32_MIN && literal == -1) {
             value = opcode == OP_DIV_INT_LIT8 ? INT32_MIN : 0;
@@ -2017,6 +2120,19 @@ static int execute_method(InterpreterFrame *frame)
         case OP_SHR_INT_2ADDR:
         case OP_USHR_INT_2ADDR:
             failed = execute_int_2addr(frame, instruction) != 0;
+            break;
+        case OP_ADD_LONG_2ADDR:
+        case OP_SUB_LONG_2ADDR:
+        case OP_MUL_LONG_2ADDR:
+        case OP_DIV_LONG_2ADDR:
+        case OP_REM_LONG_2ADDR:
+        case OP_AND_LONG_2ADDR:
+        case OP_OR_LONG_2ADDR:
+        case OP_XOR_LONG_2ADDR:
+        case OP_SHL_LONG_2ADDR:
+        case OP_SHR_LONG_2ADDR:
+        case OP_USHR_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction) != 0;
             break;
         case OP_ADD_INT_LIT16:
         case OP_RSUB_INT:
