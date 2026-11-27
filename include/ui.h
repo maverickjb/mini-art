@@ -17,6 +17,7 @@ void ui_canvas_rect(float left, float top, float right, float bottom, uint32_t c
                     uint32_t color1);
 void ui_canvas_text(const char *text, float x, float y, uint32_t color);
 void ui_canvas_post(void);
+void ui_set_title(const char *title);
 void ui_run(void);
 
 #endif

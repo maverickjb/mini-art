@@ -310,6 +310,38 @@ static int native_set_content_view_object(Runtime *rt, const JValue *args, uint3
     return surface_created(rt, args[1].l);
 }
 
+static int native_set_title(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    const char *text;
+
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    text = java_object_text(args[1].l);
+    ui_set_title(text);
+    fprintf(stderr, "Activity.setTitle %s\n", text);
+    return 0;
+}
+
+static int native_set_title_resource(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    const char *text;
+
+    (void)result;
+    if (argc < 2) {
+        return -1;
+    }
+    text = runtime_resource_string(rt, (uint32_t)args[1].i);
+    if (text == NULL) {
+        return -1;
+    }
+    ui_set_title(text);
+    fprintf(stderr, "Activity.setTitle %#x %s\n", (unsigned)args[1].i, text);
+    return 0;
+}
+
 static int native_find_view_by_id(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JavaObject *view;
@@ -339,11 +371,16 @@ int native_register_activity(Runtime *rt)
         {"Landroid/app/Activity;", "setContentView", "(I)V", native_set_content_view},
         {"Landroid/app/Activity;", "setContentView", "(Landroid/view/View;)V",
          native_set_content_view_object},
+        {"Landroid/app/Activity;", "setTitle", "(Ljava/lang/CharSequence;)V", native_set_title},
+        {"Landroid/app/Activity;", "setTitle", "(I)V", native_set_title_resource},
         {"Landroid/app/Activity;", "findViewById", "(I)Landroid/view/View;", native_find_view_by_id},
         {"Landroidx/appcompat/app/AppCompatActivity;", "<init>", "()V", native_return_void},
         {"Landroidx/appcompat/app/AppCompatActivity;", "onCreate", "(Landroid/os/Bundle;)V",
          native_return_void},
         {"Landroidx/appcompat/app/AppCompatActivity;", "setContentView", "(I)V", native_set_content_view},
+        {"Landroidx/appcompat/app/AppCompatActivity;", "setTitle", "(Ljava/lang/CharSequence;)V",
+         native_set_title},
+        {"Landroidx/appcompat/app/AppCompatActivity;", "setTitle", "(I)V", native_set_title_resource},
         {"Landroidx/appcompat/app/AppCompatActivity;", "findViewById", "(I)Landroid/view/View;",
          native_find_view_by_id},
         {"Landroid/content/Context;", "getApplicationContext", "()Landroid/content/Context;",

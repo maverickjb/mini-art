@@ -11,6 +11,20 @@
 static lv_display_t *display;
 static lv_indev_t *pointer;
 static lv_obj_t *canvas_layer;
+static char window_title[256];
+static int window_title_set;
+
+void ui_set_title(const char *title)
+{
+    if (title == NULL) {
+        return;
+    }
+    snprintf(window_title, sizeof(window_title), "%s", title);
+    window_title_set = 1;
+    if (display != NULL) {
+        lv_sdl_window_set_title(display, window_title);
+    }
+}
 
 static void attach_cursor(void)
 {
@@ -54,7 +68,7 @@ int ui_open_display(void)
         fprintf(stderr, "SDL window failed: %s\n", SDL_GetError());
         return -1;
     }
-    lv_sdl_window_set_title(display, "mini-art");
+    lv_sdl_window_set_title(display, window_title_set ? window_title : "mini-art");
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x101014), 0);
     lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, 0);
     pointer = lv_sdl_mouse_create();
@@ -156,7 +170,6 @@ void *ui_content_begin(void)
     lv_display_set_resolution(display, 480, 800);
     if (window != NULL) {
         SDL_SetWindowAlwaysOnTop(window, SDL_FALSE);
-        lv_sdl_window_set_title(display, "Calculator");
     }
     return screen;
 }
