@@ -647,6 +647,11 @@ static int native_paint_set_color(Runtime *rt, const JValue *args, uint32_t argc
     if (java_object_set_field(args[0].l, "color", field) != 0) {
         return -1;
     }
+    memset(&field, 0, sizeof(field));
+    field.i = (args[1].i >> 24) & 0xff;
+    if (java_object_set_field(args[0].l, "alpha", field) != 0) {
+        return -1;
+    }
     fprintf(stderr, "Paint.setColor %#x\n", (unsigned)args[1].i);
     return 0;
 }

@@ -469,8 +469,12 @@ static void paint_line(float x1, float y1, float x2, float y2, float stroke, uin
 {
     float dx = x2 - x1;
     float dy = y2 - y1;
-    float thickness = stroke < 1.0f ? 1.0f : stroke;
-    float half = thickness / 2.0f;
+    float half;
+
+    if (stroke < 1.0f) {
+        return;
+    }
+    half = stroke / 2.0f;
 
     if (dx < 0.0f) {
         dx = -dx;
