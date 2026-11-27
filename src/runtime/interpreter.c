@@ -85,6 +85,7 @@ enum {
     OP_ARRAY_LENGTH = 0x21,
     OP_NEW_INSTANCE = 0x22,
     OP_NEW_ARRAY = 0x23,
+    OP_FILLED_NEW_ARRAY = 0x24,
     OP_FILL_ARRAY_DATA = 0x26,
     OP_THROW = 0x27,
     OP_GOTO = 0x28,
@@ -803,6 +804,53 @@ static int execute_new_array(InterpreterFrame *frame, uint16_t instruction)
     value.l = array;
     fprintf(stderr, "new-array v%u %s [%d]\n", dest, desc, length);
     return set_register(frame, dest, value);
+}
+
+/* 35c. The array is the result of the instruction, read by move-result-object. */
+static int execute_filled_new_array(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned argc = instruction >> 12;
+    unsigned sources[5];
+    uint16_t type_idx;
+    uint16_t reg_word;
+    const char *desc;
+    JavaObject *array;
+    void **slots;
+    unsigned i;
+
+    if (argc > 5 || fetch_u16(frame, &type_idx) != 0 || fetch_u16(frame, &reg_word) != 0) {
+        return -1;
+    }
+    sources[0] = reg_word & 0xf;
+    sources[1] = (reg_word >> 4) & 0xf;
+    sources[2] = (reg_word >> 8) & 0xf;
+    sources[3] = (reg_word >> 12) & 0xf;
+    sources[4] = (instruction >> 8) & 0xf;
+    desc = dex_file_type(art_method_dex(frame->method), type_idx);
+    if (desc == NULL || desc[0] != '[' || (desc[1] != 'L' && desc[1] != '[')) {
+        return -1;
+    }
+    for (i = 0; i < argc; i++) {
+        if (sources[i] >= frame->register_count) {
+            return -1;
+        }
+    }
+    array = java_object_new_array(frame->runtime, desc, (int32_t)argc);
+    if (array == NULL) {
+        return -1;
+    }
+    if (argc > 0) {
+        if (java_object_array_data(array, NULL, NULL, (void **)&slots) != 0 || slots == NULL) {
+            return -1;
+        }
+        for (i = 0; i < argc; i++) {
+            slots[i] = frame->registers[sources[i]].l;
+        }
+    }
+    memset(&frame->result, 0, sizeof(frame->result));
+    frame->result.l = array;
+    fprintf(stderr, "filled-new-array %s [%u]\n", desc, argc);
+    return 0;
 }
 
 static int execute_fill_array_data(InterpreterFrame *frame, uint16_t instruction, uint32_t start)
@@ -1773,6 +1821,9 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_NEW_ARRAY:
             failed = execute_new_array(frame, instruction) != 0;
+            break;
+        case OP_FILLED_NEW_ARRAY:
+            failed = execute_filled_new_array(frame, instruction) != 0;
             break;
         case OP_FILL_ARRAY_DATA:
             failed = execute_fill_array_data(frame, instruction, start) != 0;

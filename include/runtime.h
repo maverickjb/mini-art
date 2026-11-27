@@ -23,6 +23,7 @@ typedef union JValue {
 } JValue;
 
 typedef int (*ArtNativeFn)(Runtime *rt, const JValue *args, uint32_t argc, JValue *result);
+typedef int (*ArtClassInitFn)(Runtime *rt, ArtClass *klass);
 
 Runtime *runtime_create(void);
 void runtime_destroy(Runtime *rt);
@@ -30,6 +31,7 @@ int runtime_define_static_int(Runtime *rt, const char *descriptor, const char *n
                               int32_t value);
 int runtime_define_static_object(Runtime *rt, const char *descriptor, const char *name,
                                  const char *type, void *value);
+int runtime_set_native_clinit(Runtime *rt, const char *descriptor, ArtClassInitFn fn);
 
 int runtime_load_dex(Runtime *rt, const uint8_t *bytes, size_t size);
 int runtime_register_native(Runtime *rt, const char *class_desc, const char *name,

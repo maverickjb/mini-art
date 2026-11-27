@@ -33,6 +33,7 @@ struct ArtClass {
     struct DexEncodedValue *static_initial;
     uint32_t static_count;
     int init_state;
+    ArtClassInitFn native_clinit;
     int kind;
     int super_unknown;
     ArtClass *next;
@@ -257,6 +258,29 @@ void class_linker_finish_init(ArtClass *klass, int ok)
         return;
     }
     klass->init_state = ok ? CLASS_INIT_DONE : CLASS_INIT_FAILED;
+}
+
+int class_linker_set_native_clinit(ClassLinker *linker, const char *descriptor, ArtClassInitFn fn)
+{
+    ArtClass *klass;
+
+    if (linker == NULL || descriptor == NULL || fn == NULL) {
+        return -1;
+    }
+    klass = class_linker_find(linker, descriptor);
+    if (klass == NULL) {
+        return -1;
+    }
+    klass->native_clinit = fn;
+    return 0;
+}
+
+ArtClassInitFn class_linker_native_clinit(const ArtClass *klass)
+{
+    if (klass == NULL) {
+        return NULL;
+    }
+    return klass->native_clinit;
 }
 
 const char *class_linker_framework_superclass(const char *descriptor)

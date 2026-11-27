@@ -23,5 +23,7 @@ int class_linker_init_status(const ArtClass *klass);
  * initializing it. -1: initialization already failed. */
 int class_linker_begin_init(ArtClass *klass);
 void class_linker_finish_init(ArtClass *klass, int ok);
+int class_linker_set_native_clinit(ClassLinker *linker, const char *descriptor, ArtClassInitFn fn);
+ArtClassInitFn class_linker_native_clinit(const ArtClass *klass);
 
 #endif

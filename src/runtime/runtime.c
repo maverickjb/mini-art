@@ -135,6 +135,14 @@ int runtime_define_static_object(Runtime *rt, const char *descriptor, const char
     return class_linker_define_static_object(rt->linker, descriptor, name, type, value);
 }
 
+int runtime_set_native_clinit(Runtime *rt, const char *descriptor, ArtClassInitFn fn)
+{
+    if (rt == NULL) {
+        return -1;
+    }
+    return class_linker_set_native_clinit(rt->linker, descriptor, fn);
+}
+
 void runtime_destroy(Runtime *rt)
 {
     size_t i;
@@ -426,12 +434,20 @@ static int ensure_initialized(Runtime *rt, ArtClass *klass)
     if (begin != 0) {
         return begin < 0 ? -1 : 0;
     }
-    clinit = class_linker_find_declared(klass, "<clinit>", "()V");
-    if (clinit != NULL && clinit->code_off != 0) {
-        if (interpreter_invoke(rt, clinit, NULL, NULL) != 0) {
+    if (class_linker_native_clinit(klass) != NULL) {
+        if (class_linker_native_clinit(klass)(rt, klass) != 0) {
             fprintf(stderr, "failed to initialize %s\n", class_linker_descriptor(klass));
             class_linker_finish_init(klass, 0);
             return -1;
+        }
+    } else {
+        clinit = class_linker_find_declared(klass, "<clinit>", "()V");
+        if (clinit != NULL && clinit->code_off != 0) {
+            if (interpreter_invoke(rt, clinit, NULL, NULL) != 0) {
+                fprintf(stderr, "failed to initialize %s\n", class_linker_descriptor(klass));
+                class_linker_finish_init(klass, 0);
+                return -1;
+            }
         }
     }
     class_linker_finish_init(klass, 1);

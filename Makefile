@@ -82,6 +82,9 @@ APK ?= tests/apk/Hello.apk
 OBJS := $(SRCS:%.c=$(BUILD)/%.o)
 LVGL_OBJS := $(LVGL_SRCS:%.c=$(BUILD)/%.o)
 DEPS := $(OBJS:.o=.d)
+HOST_TOOLS := $(BUILD)/host-tools
+JAVA_HOME := $(shell dirname $$(dirname $$(readlink -f $$(command -v java))))
+FRAMEWORK_DEX := $(BUILD)/framework-dex/classes.dex
 
 .PHONY: all clean run
 
@@ -101,8 +104,39 @@ $(SDL_LIB): $(SDL_SRC)/CMakeLists.txt
 		$(SDL_CMAKE_FLAGS)
 	cmake --build $(SDL_BUILD) --target SDL2-static -j
 
-$(BUILD)/mini-art: $(OBJS) $(LVGL_OBJS) $(SDL_LIB)
-	$(CC) -o $@ $(OBJS) $(LVGL_OBJS) $(SDL_LIB) $(LDFLAGS)
+$(BUILD)/mini-art: $(OBJS) $(LVGL_OBJS) $(SDL_LIB) $(BUILD)/framework_dex.o
+	$(CC) -o $@ $(OBJS) $(LVGL_OBJS) $(SDL_LIB) $(BUILD)/framework_dex.o $(LDFLAGS)
+
+$(HOST_TOOLS)/r8.jar:
+	mkdir -p $(dir $@)
+	curl -fsSL -o $@ https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.7.18/r8-8.7.18.jar
+
+$(HOST_TOOLS)/openjdk-21-jdk-headless.deb:
+	mkdir -p $(dir $@)
+	cd $(dir $@) && apt-get download openjdk-21-jdk-headless
+	mv $(dir $@)openjdk-21-jdk-headless_*.deb $@
+
+$(HOST_TOOLS)/jdk-overlay/bin/javac: $(HOST_TOOLS)/openjdk-21-jdk-headless.deb
+	rm -rf $(HOST_TOOLS)/deb-root $(HOST_TOOLS)/jdk-overlay
+	mkdir -p $(HOST_TOOLS)/deb-root $(HOST_TOOLS)/jdk-overlay
+	dpkg-deb -x $< $(HOST_TOOLS)/deb-root
+	cp -as $(JAVA_HOME)/. $(HOST_TOOLS)/jdk-overlay/
+	cp -a $(HOST_TOOLS)/deb-root/usr/lib/jvm/java-21-openjdk-amd64/. $(HOST_TOOLS)/jdk-overlay/
+
+$(FRAMEWORK_DEX): framework/java/android/graphics/Shader.java $(HOST_TOOLS)/jdk-overlay/bin/javac $(HOST_TOOLS)/r8.jar
+	rm -rf $(BUILD)/framework-classes
+	mkdir -p $(BUILD)/framework-classes $(dir $@)
+	$(HOST_TOOLS)/jdk-overlay/bin/javac -Xlint:-options -source 8 -target 8 \
+		-d $(BUILD)/framework-classes $<
+	java -cp $(HOST_TOOLS)/r8.jar com.android.tools.r8.D8 --min-api 24 --output $(dir $@) \
+		$(BUILD)/framework-classes/android/graphics/Shader.class \
+		'$(BUILD)/framework-classes/android/graphics/Shader$$TileMode.class'
+
+$(BUILD)/framework_dex.c: $(FRAMEWORK_DEX)
+	xxd -i -n framework_dex $< > $@
+
+$(BUILD)/framework_dex.o: $(BUILD)/framework_dex.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/%.o: %.c $(SDL_LIB)
 	@mkdir -p $(dir $@)
