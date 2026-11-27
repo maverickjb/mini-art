@@ -154,6 +154,11 @@ enum {
     OP_INVOKE_DIRECT_RANGE = 0x76,
     OP_INVOKE_STATIC_RANGE = 0x77,
     OP_INVOKE_INTERFACE_RANGE = 0x78,
+    OP_NEG_INT = 0x7b,
+    OP_NOT_INT = 0x7c,
+    OP_NEG_LONG = 0x7d,
+    OP_NOT_LONG = 0x7e,
+    OP_NEG_FLOAT = 0x7f,
     OP_NEG_DOUBLE = 0x80,
     OP_INT_TO_LONG = 0x81,
     OP_INT_TO_FLOAT = 0x82,
@@ -1293,38 +1298,71 @@ static int execute_convert(InterpreterFrame *frame, uint16_t instruction)
     return set_register(frame, dest, value);
 }
 
-static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
+/* 12x. vA = <op> vB. A long or double stays in the named register. */
+static int execute_unary(InterpreterFrame *frame, uint16_t instruction)
 {
     unsigned dest = (instruction >> 8) & 0x0f;
     unsigned src = instruction >> 12;
     JValue value;
-    uint8_t opcode = instruction & 0xff;
+    uint8_t opcode = (uint8_t)(instruction & 0xff);
 
     if (read_register(frame, src, &value) != 0) {
         return -1;
     }
-    if (opcode == OP_NEG_DOUBLE) {
+    switch (opcode) {
+    case OP_NEG_INT:
+        value.i = (int32_t)(0u - (uint32_t)value.i);
+        break;
+    case OP_NOT_INT:
+        value.i = ~value.i;
+        break;
+    case OP_NEG_LONG:
+        value.j = (int64_t)(0ull - (uint64_t)value.j);
+        break;
+    case OP_NOT_LONG:
+        value.j = ~value.j;
+        break;
+    case OP_NEG_FLOAT:
+        value.f = -value.f;
+        break;
+    case OP_NEG_DOUBLE:
         value.d = -value.d;
+        break;
+    default:
+        return -1;
+    }
+    return set_register(frame, dest, value);
+}
+
+static int execute_unop(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = (instruction >> 8) & 0x0f;
+    unsigned src = instruction >> 12;
+    JValue left_value;
+    JValue right_value;
+    JValue value;
+    uint8_t opcode = instruction & 0xff;
+    double left;
+    double right;
+
+    if (read_register(frame, dest, &left_value) != 0 || read_register(frame, src, &right_value) != 0) {
+        return -1;
+    }
+    left = left_value.d;
+    right = right_value.d;
+    memset(&value, 0, sizeof(value));
+    if (opcode == OP_ADD_DOUBLE_2ADDR) {
+        value.d = left + right;
+    } else if (opcode == OP_SUB_DOUBLE_2ADDR) {
+        value.d = left - right;
+    } else if (opcode == OP_MUL_DOUBLE_2ADDR) {
+        value.d = left * right;
+    } else if (opcode == OP_DIV_DOUBLE_2ADDR) {
+        value.d = left / right;
+    } else if (opcode == OP_REM_DOUBLE_2ADDR) {
+        value.d = fmod(left, right);
     } else {
-        double left;
-        double right = value.d;
-        if (dest >= frame->register_count) {
-            return -1;
-        }
-        left = frame->registers[dest].d;
-        if (opcode == OP_ADD_DOUBLE_2ADDR) {
-            value.d = left + right;
-        } else if (opcode == OP_SUB_DOUBLE_2ADDR) {
-            value.d = left - right;
-        } else if (opcode == OP_MUL_DOUBLE_2ADDR) {
-            value.d = left * right;
-        } else if (opcode == OP_DIV_DOUBLE_2ADDR) {
-            value.d = right == 0.0 ? 0.0 : left / right;
-        } else if (opcode == OP_REM_DOUBLE_2ADDR) {
-            value.d = right == 0.0 ? 0.0 : fmod(left, right);
-        } else {
-            return -1;
-        }
+        return -1;
     }
     return set_register(frame, dest, value);
 }
@@ -1423,9 +1461,9 @@ static int execute_double_binop(InterpreterFrame *frame, uint16_t instruction)
     } else if (opcode == OP_MUL_DOUBLE) {
         result = left * right;
     } else if (opcode == OP_DIV_DOUBLE) {
-        result = right == 0.0 ? 0.0 : left / right;
+        result = left / right;
     } else if (opcode == OP_REM_DOUBLE) {
-        result = right == 0.0 ? 0.0 : fmod(left, right);
+        result = fmod(left, right);
     } else {
         return -1;
     }
@@ -2179,7 +2217,14 @@ static int execute_method(InterpreterFrame *frame)
         case OP_INT_TO_SHORT:
             failed = execute_convert(frame, instruction) != 0;
             break;
+        case OP_NEG_INT:
+        case OP_NOT_INT:
+        case OP_NEG_LONG:
+        case OP_NOT_LONG:
+        case OP_NEG_FLOAT:
         case OP_NEG_DOUBLE:
+            failed = execute_unary(frame, instruction) != 0;
+            break;
         case OP_ADD_DOUBLE_2ADDR:
         case OP_SUB_DOUBLE_2ADDR:
         case OP_MUL_DOUBLE_2ADDR:
