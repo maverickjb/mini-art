@@ -422,8 +422,12 @@ static int native_canvas_draw_text(Runtime *rt, const JValue *args, uint32_t arg
     if (java_object_set_field(args[0].l, "textPaint", field) != 0) {
         return -1;
     }
-    ui_canvas_text(java_object_text(args[1].l), args[2].f, args[3].f, paint_argb(args[4].l, NULL));
-    fprintf(stderr, "Canvas.drawText %s %g %g\n", java_object_text(args[1].l), args[2].f, args[3].f);
+    memset(&field, 0, sizeof(field));
+    java_object_get_field(args[4].l, "textSize", &field);
+    ui_canvas_text(java_object_text(args[1].l), args[2].f, args[3].f, field.f,
+                   paint_argb(args[4].l, NULL));
+    fprintf(stderr, "Canvas.drawText %s %g %g size %g\n", java_object_text(args[1].l), args[2].f,
+            args[3].f, field.f);
     return 0;
 }
 

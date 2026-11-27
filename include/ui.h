@@ -18,7 +18,7 @@ void ui_canvas_rect(float left, float top, float right, float bottom, uint32_t c
 void ui_canvas_round_rect(float left, float top, float right, float bottom, float radius,
                           uint32_t color, uint32_t color1);
 void ui_canvas_line(float x1, float y1, float x2, float y2, float stroke, uint32_t color);
-void ui_canvas_text(const char *text, float x, float y, uint32_t color);
+void ui_canvas_text(const char *text, float x, float y, float size, uint32_t color);
 void ui_canvas_post(void);
 void ui_set_title(const char *title);
 void ui_set_touch_handler(void (*fn)(float x, float y, int action));

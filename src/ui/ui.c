@@ -304,6 +304,7 @@ struct CanvasCmd {
     uint32_t color;
     uint32_t color1;
     float radius;
+    float size;
     char text[96];
 };
 
@@ -395,7 +396,7 @@ void ui_canvas_line(float x1, float y1, float x2, float y2, float stroke, uint32
     pthread_mutex_unlock(&canvas_mu);
 }
 
-void ui_canvas_text(const char *text, float x, float y, uint32_t color)
+void ui_canvas_text(const char *text, float x, float y, float size, uint32_t color)
 {
     struct CanvasCmd *cmd;
 
@@ -406,6 +407,7 @@ void ui_canvas_text(const char *text, float x, float y, uint32_t color)
         cmd->top = y;
         cmd->color = color;
         cmd->color1 = color;
+        cmd->size = size;
         if (text != NULL) {
             strncpy(cmd->text, text, sizeof(cmd->text) - 1);
         }
@@ -489,17 +491,32 @@ static void paint_line(float x1, float y1, float x2, float y2, float stroke, uin
     }
 }
 
+static const lv_font_t *font_for_size(float size)
+{
+    if (size > 0.0f && size <= 13.0f) {
+        return &lv_font_montserrat_12;
+    }
+    if (size > 0.0f && size <= 16.0f) {
+        return &lv_font_montserrat_14;
+    }
+    if (size > 0.0f && size <= 24.0f) {
+        return &lv_font_montserrat_20;
+    }
+    return &lv_font_montserrat_28;
+}
+
 static void paint_command(const struct CanvasCmd *cmd)
 {
     if (cmd->kind == CANVAS_TEXT) {
         lv_obj_t *label;
-        int y = (int)cmd->top - 28;
+        const lv_font_t *font = font_for_size(cmd->size);
+        int y = (int)cmd->top - (int)font->line_height;
 
         label = lv_label_create(canvas_layer);
         lv_label_set_text(label, cmd->text);
         lv_obj_set_flag(label, LV_OBJ_FLAG_IGNORE_LAYOUT, true);
         lv_obj_set_pos(label, (int)cmd->left, y < 0 ? 0 : y);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(label, font, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(cmd->color & 0x00ffffffu), 0);
         return;
     }
