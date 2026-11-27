@@ -316,6 +316,18 @@ static int native_builder_init(Runtime *rt, const JValue *args, uint32_t argc, J
     return 0;
 }
 
+static int native_builder_init_string(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    java_object_set_text(args[0].l, java_object_text(args[1].l));
+    fprintf(stderr, "StringBuilder.<init> %s\n", java_object_text(args[0].l));
+    return 0;
+}
+
 static int native_builder_append_text(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     const char *extra;
@@ -439,6 +451,7 @@ int native_register_string(Runtime *rt)
         {"Ljava/lang/String;", "toString", "()Ljava/lang/String;", native_string_to_string},
         {"Ljava/lang/CharSequence;", "toString", "()Ljava/lang/String;", native_string_to_string},
         {"Ljava/lang/StringBuilder;", "<init>", "()V", native_builder_init},
+        {"Ljava/lang/StringBuilder;", "<init>", "(Ljava/lang/String;)V", native_builder_init_string},
         {"Ljava/lang/StringBuilder;", "append", "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
          native_builder_append_text},
         {"Ljava/lang/StringBuilder;", "append", "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",

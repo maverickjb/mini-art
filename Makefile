@@ -123,14 +123,15 @@ $(HOST_TOOLS)/jdk-overlay/bin/javac: $(HOST_TOOLS)/openjdk-21-jdk-headless.deb
 	cp -as $(JAVA_HOME)/. $(HOST_TOOLS)/jdk-overlay/
 	cp -a $(HOST_TOOLS)/deb-root/usr/lib/jvm/java-21-openjdk-amd64/. $(HOST_TOOLS)/jdk-overlay/
 
-$(FRAMEWORK_DEX): framework/java/android/graphics/Shader.java $(HOST_TOOLS)/jdk-overlay/bin/javac $(HOST_TOOLS)/r8.jar
+FRAMEWORK_JAVA := $(shell find framework/java -name '*.java' | sort)
+
+$(FRAMEWORK_DEX): $(FRAMEWORK_JAVA) $(HOST_TOOLS)/jdk-overlay/bin/javac $(HOST_TOOLS)/r8.jar
 	rm -rf $(BUILD)/framework-classes
 	mkdir -p $(BUILD)/framework-classes $(dir $@)
 	$(HOST_TOOLS)/jdk-overlay/bin/javac -Xlint:-options -source 8 -target 8 \
-		-d $(BUILD)/framework-classes $<
-	java -cp $(HOST_TOOLS)/r8.jar com.android.tools.r8.D8 --min-api 24 --output $(dir $@) \
-		$(BUILD)/framework-classes/android/graphics/Shader.class \
-		'$(BUILD)/framework-classes/android/graphics/Shader$$TileMode.class'
+		-d $(BUILD)/framework-classes $(FRAMEWORK_JAVA)
+	set -- $$(find $(BUILD)/framework-classes -name '*.class'); \
+	java -cp $(HOST_TOOLS)/r8.jar com.android.tools.r8.D8 --min-api 24 --output $(dir $@) "$$@"
 
 $(BUILD)/framework_dex.c: $(FRAMEWORK_DEX)
 	xxd -i -n framework_dex $< > $@
