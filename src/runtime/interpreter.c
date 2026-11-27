@@ -68,7 +68,11 @@ enum {
     OP_RETURN_WIDE = 0x10,
     OP_RETURN_OBJECT = 0x11,
     OP_MOVE = 0x01,
+    OP_MOVE_FROM16 = 0x02,
+    OP_MOVE_16 = 0x03,
     OP_MOVE_WIDE = 0x04,
+    OP_MOVE_WIDE_FROM16 = 0x05,
+    OP_MOVE_WIDE_16 = 0x06,
     OP_MOVE_OBJECT = 0x07,
     OP_MOVE_OBJECT_FROM16 = 0x08,
     OP_MOVE_OBJECT_16 = 0x09,
@@ -596,46 +600,53 @@ static void branch_to(InterpreterFrame *frame, uint32_t start, int32_t offset)
     frame->pc = (uint32_t)((int32_t)start + offset);
 }
 
-static int execute_move(InterpreterFrame *frame, uint16_t instruction, int wide)
-{
-    unsigned dest = (instruction >> 8) & 0x0f;
-    unsigned src = instruction >> 12;
-    JValue value;
+enum {
+    MOVE_12X,
+    MOVE_22X,
+    MOVE_32X
+};
 
-    if (wide && (dest + 1 >= frame->register_count || src + 1 >= frame->register_count)) {
-        return -1;
-    }
-    if (read_register(frame, src, &value) != 0 || set_register(frame, dest, value) != 0) {
-        return -1;
-    }
-    if (wide) {
-        frame->registers[dest + 1] = frame->registers[src + 1];
-    }
-    return 0;
-}
-
-/* 22x is AA|op BBBB. 32x is 00|op AAAA BBBB. Both copy one object register. */
-static int execute_move_object_22x_32x(InterpreterFrame *frame, uint16_t instruction, int format_32x)
+/* 12x is B|A|op. 22x is AA|op BBBB. 32x is 00|op AAAA BBBB. A wide value also copies the next register. */
+static int execute_move(InterpreterFrame *frame, uint16_t instruction, int format, int wide)
 {
     uint16_t word;
     unsigned dest;
     unsigned src;
     JValue value;
+    JValue pair;
 
-    if (format_32x) {
+    if (format == MOVE_32X) {
         if (fetch_u16(frame, &word) != 0) {
             return -1;
         }
         dest = word;
-    } else {
+    } else if (format == MOVE_22X) {
         dest = instruction >> 8;
+    } else {
+        dest = (instruction >> 8) & 0x0f;
     }
-    if (fetch_u16(frame, &word) != 0) {
+    if (format == MOVE_12X) {
+        src = instruction >> 12;
+    } else if (fetch_u16(frame, &word) != 0) {
+        return -1;
+    } else {
+        src = word;
+    }
+    if (dest >= frame->register_count || src >= frame->register_count) {
         return -1;
     }
-    src = word;
-    if (read_register(frame, src, &value) != 0 || set_register(frame, dest, value) != 0) {
+    if (wide && (dest + 1 >= frame->register_count || src + 1 >= frame->register_count)) {
         return -1;
+    }
+    if (read_register(frame, src, &value) != 0) {
+        return -1;
+    }
+    if (wide && read_register(frame, src + 1, &pair) != 0) {
+        return -1;
+    }
+    frame->registers[dest] = value;
+    if (wide) {
+        frame->registers[dest + 1] = pair;
     }
     return 0;
 }
@@ -1973,16 +1984,24 @@ static int execute_method(InterpreterFrame *frame)
             break;
         case OP_MOVE:
         case OP_MOVE_OBJECT:
-            failed = execute_move(frame, instruction, 0) != 0;
+            failed = execute_move(frame, instruction, MOVE_12X, 0) != 0;
             break;
+        case OP_MOVE_FROM16:
         case OP_MOVE_OBJECT_FROM16:
-            failed = execute_move_object_22x_32x(frame, instruction, 0) != 0;
+            failed = execute_move(frame, instruction, MOVE_22X, 0) != 0;
             break;
+        case OP_MOVE_16:
         case OP_MOVE_OBJECT_16:
-            failed = execute_move_object_22x_32x(frame, instruction, 1) != 0;
+            failed = execute_move(frame, instruction, MOVE_32X, 0) != 0;
             break;
         case OP_MOVE_WIDE:
-            failed = execute_move(frame, instruction, 1) != 0;
+            failed = execute_move(frame, instruction, MOVE_12X, 1) != 0;
+            break;
+        case OP_MOVE_WIDE_FROM16:
+            failed = execute_move(frame, instruction, MOVE_22X, 1) != 0;
+            break;
+        case OP_MOVE_WIDE_16:
+            failed = execute_move(frame, instruction, MOVE_32X, 1) != 0;
             break;
         case OP_MOVE_RESULT:
         case OP_MOVE_RESULT_WIDE:
