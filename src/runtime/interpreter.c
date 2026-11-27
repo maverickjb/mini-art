@@ -187,6 +187,17 @@ enum {
     OP_SHL_INT = 0x98,
     OP_SHR_INT = 0x99,
     OP_USHR_INT = 0x9a,
+    OP_ADD_LONG = 0x9b,
+    OP_SUB_LONG = 0x9c,
+    OP_MUL_LONG = 0x9d,
+    OP_DIV_LONG = 0x9e,
+    OP_REM_LONG = 0x9f,
+    OP_AND_LONG = 0xa0,
+    OP_OR_LONG = 0xa1,
+    OP_XOR_LONG = 0xa2,
+    OP_SHL_LONG = 0xa3,
+    OP_SHR_LONG = 0xa4,
+    OP_USHR_LONG = 0xa5,
     OP_ADD_INT_2ADDR = 0xb0,
     OP_SUB_INT_2ADDR = 0xb1,
     OP_MUL_INT_2ADDR = 0xb2,
@@ -1501,46 +1512,46 @@ static int execute_int_2addr(InterpreterFrame *frame, uint16_t instruction)
     return set_int_register(frame, dest, left);
 }
 
-/* 12x long arithmetic. Shifts use the low 6 bits. */
+/* op is the 23x opcode: add-long through ushr-long. Shifts use the low 6 bits. */
 static int apply_long_op(int64_t *left_out, int64_t right, uint8_t op)
 {
     int64_t left = *left_out;
     unsigned shift;
 
     switch (op) {
-    case OP_ADD_LONG_2ADDR:
+    case OP_ADD_LONG:
         left = (int64_t)((uint64_t)left + (uint64_t)right);
         break;
-    case OP_SUB_LONG_2ADDR:
+    case OP_SUB_LONG:
         left = (int64_t)((uint64_t)left - (uint64_t)right);
         break;
-    case OP_MUL_LONG_2ADDR:
+    case OP_MUL_LONG:
         left = (int64_t)((uint64_t)left * (uint64_t)right);
         break;
-    case OP_DIV_LONG_2ADDR:
-    case OP_REM_LONG_2ADDR:
+    case OP_DIV_LONG:
+    case OP_REM_LONG:
         if (right == 0) {
             return EXEC_ARITHMETIC;
         }
         if (left == INT64_MIN && right == -1) {
-            left = op == OP_DIV_LONG_2ADDR ? INT64_MIN : 0;
+            left = op == OP_DIV_LONG ? INT64_MIN : 0;
             break;
         }
-        left = op == OP_DIV_LONG_2ADDR ? left / right : left % right;
+        left = op == OP_DIV_LONG ? left / right : left % right;
         break;
-    case OP_AND_LONG_2ADDR:
+    case OP_AND_LONG:
         left &= right;
         break;
-    case OP_OR_LONG_2ADDR:
+    case OP_OR_LONG:
         left |= right;
         break;
-    case OP_XOR_LONG_2ADDR:
+    case OP_XOR_LONG:
         left ^= right;
         break;
-    case OP_SHL_LONG_2ADDR:
+    case OP_SHL_LONG:
         left = (int64_t)((uint64_t)left << ((unsigned)right & 63u));
         break;
-    case OP_SHR_LONG_2ADDR:
+    case OP_SHR_LONG:
         shift = (unsigned)right & 63u;
         if (left < 0 && shift != 0) {
             left = (int64_t)(((uint64_t)left >> shift) | (~0ULL << (64u - shift)));
@@ -1548,7 +1559,7 @@ static int apply_long_op(int64_t *left_out, int64_t right, uint8_t op)
             left = (int64_t)((uint64_t)left >> shift);
         }
         break;
-    case OP_USHR_LONG_2ADDR:
+    case OP_USHR_LONG:
         left = (int64_t)((uint64_t)left >> ((unsigned)right & 63u));
         break;
     default:
@@ -1558,8 +1569,8 @@ static int apply_long_op(int64_t *left_out, int64_t right, uint8_t op)
     return EXEC_OK;
 }
 
-/* 12x. vA = vA <op> vB. The 64-bit value lives in the named register. */
-static int execute_long_2addr(InterpreterFrame *frame, uint16_t instruction)
+/* 12x. vA = vA <op> vB. op is add-long through ushr-long. */
+static int execute_long_2addr(InterpreterFrame *frame, uint16_t instruction, uint8_t op)
 {
     unsigned dest = (instruction >> 8) & 0x0f;
     unsigned src = instruction >> 12;
@@ -1570,7 +1581,36 @@ static int execute_long_2addr(InterpreterFrame *frame, uint16_t instruction)
         return -1;
     }
     left = frame->registers[dest].j;
-    if (report_op(apply_long_op(&left, frame->registers[src].j, instruction & 0xff)) != 0) {
+    if (report_op(apply_long_op(&left, frame->registers[src].j, op)) != 0) {
+        return -1;
+    }
+    memset(&value, 0, sizeof(value));
+    value.j = left;
+    return set_register(frame, dest, value);
+}
+
+/* 23x. vAA = vBB <op> vCC. The 64-bit value lives in the named register. */
+static int execute_long_23x(InterpreterFrame *frame, uint16_t instruction)
+{
+    unsigned dest = instruction >> 8;
+    uint16_t regs;
+    unsigned left_reg;
+    unsigned right_reg;
+    int64_t left;
+    JValue value;
+    uint8_t op = (uint8_t)(instruction & 0xff);
+
+    if (fetch_u16(frame, &regs) != 0) {
+        return -1;
+    }
+    left_reg = regs & 0xff;
+    right_reg = regs >> 8;
+    if (dest >= frame->register_count || left_reg >= frame->register_count ||
+        right_reg >= frame->register_count) {
+        return -1;
+    }
+    left = frame->registers[left_reg].j;
+    if (report_op(apply_long_op(&left, frame->registers[right_reg].j, op)) != 0) {
         return -1;
     }
     memset(&value, 0, sizeof(value));
@@ -2178,6 +2218,19 @@ static int execute_method(InterpreterFrame *frame)
         case OP_USHR_INT:
             failed = execute_int_23x(frame, instruction) != 0;
             break;
+        case OP_ADD_LONG:
+        case OP_SUB_LONG:
+        case OP_MUL_LONG:
+        case OP_DIV_LONG:
+        case OP_REM_LONG:
+        case OP_AND_LONG:
+        case OP_OR_LONG:
+        case OP_XOR_LONG:
+        case OP_SHL_LONG:
+        case OP_SHR_LONG:
+        case OP_USHR_LONG:
+            failed = execute_long_23x(frame, instruction) != 0;
+            break;
         case OP_ADD_INT_2ADDR:
         case OP_SUB_INT_2ADDR:
         case OP_MUL_INT_2ADDR:
@@ -2192,17 +2245,37 @@ static int execute_method(InterpreterFrame *frame)
             failed = execute_int_2addr(frame, instruction) != 0;
             break;
         case OP_ADD_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_ADD_LONG) != 0;
+            break;
         case OP_SUB_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_SUB_LONG) != 0;
+            break;
         case OP_MUL_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_MUL_LONG) != 0;
+            break;
         case OP_DIV_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_DIV_LONG) != 0;
+            break;
         case OP_REM_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_REM_LONG) != 0;
+            break;
         case OP_AND_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_AND_LONG) != 0;
+            break;
         case OP_OR_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_OR_LONG) != 0;
+            break;
         case OP_XOR_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_XOR_LONG) != 0;
+            break;
         case OP_SHL_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_SHL_LONG) != 0;
+            break;
         case OP_SHR_LONG_2ADDR:
+            failed = execute_long_2addr(frame, instruction, OP_SHR_LONG) != 0;
+            break;
         case OP_USHR_LONG_2ADDR:
-            failed = execute_long_2addr(frame, instruction) != 0;
+            failed = execute_long_2addr(frame, instruction, OP_USHR_LONG) != 0;
             break;
         case OP_ADD_INT_LIT16:
         case OP_RSUB_INT:
