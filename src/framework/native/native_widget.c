@@ -199,6 +199,18 @@ static int native_surface_holder_lock_canvas(Runtime *rt, const JValue *args, ui
     return 0;
 }
 
+static int native_surface_holder_unlock_canvas(Runtime *rt, const JValue *args, uint32_t argc,
+                                               JValue *result)
+{
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    fprintf(stderr, "SurfaceHolder.unlockCanvasAndPost\n");
+    return 0;
+}
+
 static int native_canvas_get_width(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JValue stored;
@@ -435,6 +447,24 @@ static int native_paint_set_color(Runtime *rt, const JValue *args, uint32_t argc
     return 0;
 }
 
+static int native_paint_set_alpha(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue field;
+
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.i = args[1].i;
+    if (java_object_set_field(args[0].l, "alpha", field) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "Paint.setAlpha %d\n", args[1].i);
+    return 0;
+}
+
 static int native_paint_set_typeface(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JValue stored;
@@ -550,6 +580,8 @@ int native_register_widget(Runtime *rt)
          native_surface_holder_get_surface},
         {"Landroid/view/SurfaceHolder;", "lockCanvas", "()Landroid/graphics/Canvas;",
          native_surface_holder_lock_canvas},
+        {"Landroid/view/SurfaceHolder;", "unlockCanvasAndPost", "(Landroid/graphics/Canvas;)V",
+         native_surface_holder_unlock_canvas},
         {"Landroid/graphics/Canvas;", "getWidth", "()I", native_canvas_get_width},
         {"Landroid/graphics/Canvas;", "getHeight", "()I", native_canvas_get_height},
         {"Landroid/graphics/Canvas;", "drawRect", "(FFFFLandroid/graphics/Paint;)V",
@@ -565,6 +597,7 @@ int native_register_widget(Runtime *rt)
          native_paint_set_text_align},
         {"Landroid/graphics/Paint;", "setTextSize", "(F)V", native_paint_set_text_size},
         {"Landroid/graphics/Paint;", "setColor", "(I)V", native_paint_set_color},
+        {"Landroid/graphics/Paint;", "setAlpha", "(I)V", native_paint_set_alpha},
         {"Landroid/graphics/Paint;", "setTypeface",
          "(Landroid/graphics/Typeface;)Landroid/graphics/Typeface;", native_paint_set_typeface},
         {"Landroid/graphics/LinearGradient;", "<init>",
