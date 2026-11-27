@@ -75,6 +75,28 @@ static int native_math_min_float(Runtime *rt, const JValue *args, uint32_t argc,
     return 0;
 }
 
+static int native_math_min_int(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    if (argc < 2 || result == NULL) {
+        return -1;
+    }
+    result->i = args[0].i <= args[1].i ? args[0].i : args[1].i;
+    fprintf(stderr, "Math.min %d\n", result->i);
+    return 0;
+}
+
+static int native_math_max_int(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    (void)rt;
+    if (argc < 2 || result == NULL) {
+        return -1;
+    }
+    result->i = args[0].i >= args[1].i ? args[0].i : args[1].i;
+    fprintf(stderr, "Math.max %d\n", result->i);
+    return 0;
+}
+
 static int native_math_pow(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -109,6 +131,8 @@ int native_register_math(Runtime *rt)
         {"Ljava/lang/Math;", "pow", "(DD)D", native_math_pow},
         {"Ljava/lang/Math;", "hypot", "(DD)D", native_math_hypot},
         {"Ljava/lang/Math;", "min", "(FF)F", native_math_min_float},
+        {"Ljava/lang/Math;", "min", "(II)I", native_math_min_int},
+        {"Ljava/lang/Math;", "max", "(II)I", native_math_max_int},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
