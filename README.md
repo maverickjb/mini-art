@@ -30,7 +30,7 @@ make run
 make run APK=tests/apk/Calculator.apk
 ```
 
-That opens the calculator and leaves the window up until it is closed. `tests/apk/Calculator.apk` is from https://github.com/Amey-Thakur/ANDROID-STUDIO-CALCULATOR. Test APKs live in `tests/apk/`.
+That opens the calculator and leaves the window up until it is closed. `tests/apk/Calculator.apk` is from https://github.com/Amey-Thakur/ANDROID-STUDIO-CALCULATOR. `tests/apk/LowBlocks.apk` is the Tetris game from https://github.com/Promastergame/tinyapk-lab/tree/main/Tetris. Test APKs live in `tests/apk/`.
 
 The host binary does the same thing without `make`:
 
