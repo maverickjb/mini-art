@@ -289,7 +289,8 @@ void ui_content_on_click(void (*fn)(void *user))
 
 enum {
     CANVAS_RECT = 1,
-    CANVAS_TEXT = 2
+    CANVAS_TEXT = 2,
+    CANVAS_LINE = 3
 };
 
 #define CANVAS_CMD_MAX 1024
@@ -302,6 +303,7 @@ struct CanvasCmd {
     float bottom;
     uint32_t color;
     uint32_t color1;
+    float radius;
     char text[96];
 };
 
@@ -356,6 +358,43 @@ void ui_canvas_rect(float left, float top, float right, float bottom, uint32_t c
     pthread_mutex_unlock(&canvas_mu);
 }
 
+void ui_canvas_round_rect(float left, float top, float right, float bottom, float radius,
+                          uint32_t color, uint32_t color1)
+{
+    struct CanvasCmd *cmd;
+
+    pthread_mutex_lock(&canvas_mu);
+    cmd = canvas_push(CANVAS_RECT);
+    if (cmd != NULL) {
+        cmd->left = left;
+        cmd->top = top;
+        cmd->right = right;
+        cmd->bottom = bottom;
+        cmd->color = color;
+        cmd->color1 = color1;
+        cmd->radius = radius;
+    }
+    pthread_mutex_unlock(&canvas_mu);
+}
+
+void ui_canvas_line(float x1, float y1, float x2, float y2, float stroke, uint32_t color)
+{
+    struct CanvasCmd *cmd;
+
+    pthread_mutex_lock(&canvas_mu);
+    cmd = canvas_push(CANVAS_LINE);
+    if (cmd != NULL) {
+        cmd->left = x1;
+        cmd->top = y1;
+        cmd->right = x2;
+        cmd->bottom = y2;
+        cmd->color = color;
+        cmd->color1 = color;
+        cmd->radius = stroke;
+    }
+    pthread_mutex_unlock(&canvas_mu);
+}
+
 void ui_canvas_text(const char *text, float x, float y, uint32_t color)
 {
     struct CanvasCmd *cmd;
@@ -400,7 +439,8 @@ static uint32_t mix_color(uint32_t start, uint32_t end, int step, int steps)
     return mixed;
 }
 
-static void paint_rect(float left, float top, float right, float bottom, uint32_t color)
+static void paint_rect(float left, float top, float right, float bottom, uint32_t color,
+                       float radius)
 {
     lv_obj_t *box;
     int x = (int)left;
@@ -416,11 +456,37 @@ static void paint_rect(float left, float top, float right, float bottom, uint32_
     lv_obj_set_flag(box, LV_OBJ_FLAG_SCROLLABLE, false);
     lv_obj_set_pos(box, x, y);
     lv_obj_set_size(box, width, height);
-    lv_obj_set_style_radius(box, 0, 0);
+    lv_obj_set_style_radius(box, (int32_t)radius, 0);
     lv_obj_set_style_border_width(box, 0, 0);
     lv_obj_set_style_pad_all(box, 0, 0);
     lv_obj_set_style_bg_color(box, lv_color_hex(color & 0x00ffffffu), 0);
     lv_obj_set_style_bg_opa(box, (lv_opa_t)((color >> 24) & 0xffu), 0);
+}
+
+static void paint_line(float x1, float y1, float x2, float y2, float stroke, uint32_t color)
+{
+    float dx = x2 - x1;
+    float dy = y2 - y1;
+    float thickness = stroke < 1.0f ? 1.0f : stroke;
+    float half = thickness / 2.0f;
+
+    if (dx < 0.0f) {
+        dx = -dx;
+    }
+    if (dy < 0.0f) {
+        dy = -dy;
+    }
+    if (dx >= dy) {
+        float left = x1 < x2 ? x1 : x2;
+        float right = x1 < x2 ? x2 : x1;
+        float mid = (y1 + y2) / 2.0f;
+        paint_rect(left, mid - half, right, mid + half, color, 0.0f);
+    } else {
+        float top = y1 < y2 ? y1 : y2;
+        float bottom = y1 < y2 ? y2 : y1;
+        float mid = (x1 + x2) / 2.0f;
+        paint_rect(mid - half, top, mid + half, bottom, color, 0.0f);
+    }
 }
 
 static void paint_command(const struct CanvasCmd *cmd)
@@ -437,8 +503,12 @@ static void paint_command(const struct CanvasCmd *cmd)
         lv_obj_set_style_text_color(label, lv_color_hex(cmd->color & 0x00ffffffu), 0);
         return;
     }
-    if (cmd->color == cmd->color1) {
-        paint_rect(cmd->left, cmd->top, cmd->right, cmd->bottom, cmd->color);
+    if (cmd->kind == CANVAS_LINE) {
+        paint_line(cmd->left, cmd->top, cmd->right, cmd->bottom, cmd->radius, cmd->color);
+        return;
+    }
+    if (cmd->color == cmd->color1 || cmd->radius > 0.0f) {
+        paint_rect(cmd->left, cmd->top, cmd->right, cmd->bottom, cmd->color, cmd->radius);
         return;
     }
     {
@@ -450,7 +520,7 @@ static void paint_command(const struct CanvasCmd *cmd)
             float band_top = cmd->top + span * (float)band / (float)BANDS;
             float band_bottom = cmd->top + span * (float)(band + 1) / (float)BANDS;
             paint_rect(cmd->left, band_top, cmd->right, band_bottom,
-                       mix_color(cmd->color, cmd->color1, band, BANDS));
+                       mix_color(cmd->color, cmd->color1, band, BANDS), 0.0f);
         }
     }
 }

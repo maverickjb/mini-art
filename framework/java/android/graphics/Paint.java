@@ -7,4 +7,10 @@ public class Paint {
         CENTER,
         RIGHT
     }
+
+    public enum Style {
+        FILL,
+        STROKE,
+        FILL_AND_STROKE
+    }
 }

@@ -328,6 +328,71 @@ static int native_canvas_draw_rect(Runtime *rt, const JValue *args, uint32_t arg
     return 0;
 }
 
+static int native_canvas_draw_round_rect(Runtime *rt, const JValue *args, uint32_t argc,
+                                        JValue *result)
+{
+    JValue edge;
+    float left;
+    float top;
+    float right;
+    float bottom;
+    float radius;
+
+    (void)rt;
+    (void)result;
+    if (argc < 5 || !java_object_check(args[0].l) || !java_object_check(args[1].l) ||
+        !java_object_check(args[4].l)) {
+        return -1;
+    }
+    memset(&edge, 0, sizeof(edge));
+    if (java_object_get_field(args[1].l, "left", &edge) != 0) {
+        return -1;
+    }
+    left = edge.f;
+    if (java_object_get_field(args[1].l, "top", &edge) != 0) {
+        return -1;
+    }
+    top = edge.f;
+    if (java_object_get_field(args[1].l, "right", &edge) != 0) {
+        return -1;
+    }
+    right = edge.f;
+    if (java_object_get_field(args[1].l, "bottom", &edge) != 0) {
+        return -1;
+    }
+    bottom = edge.f;
+    radius = args[2].f < args[3].f ? args[2].f : args[3].f;
+    {
+        uint32_t second = 0;
+        uint32_t color = paint_argb(args[4].l, &second);
+        ui_canvas_round_rect(left, top, right, bottom, radius, color, second);
+    }
+    fprintf(stderr, "Canvas.drawRoundRect %g %g %g %g r=%g\n", left, top, right, bottom, radius);
+    return 0;
+}
+
+static int native_canvas_draw_line(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue field;
+    float stroke = 1.0f;
+
+    (void)rt;
+    (void)result;
+    if (argc < 6 || !java_object_check(args[0].l) || !java_object_check(args[5].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    if (java_object_get_field(args[5].l, "strokeWidth", &field) == 0 && field.f > 0.0f) {
+        stroke = field.f;
+    }
+    {
+        uint32_t color = paint_argb(args[5].l, NULL);
+        ui_canvas_line(args[1].f, args[2].f, args[3].f, args[4].f, stroke, color);
+    }
+    fprintf(stderr, "Canvas.drawLine %g %g %g %g\n", args[1].f, args[2].f, args[3].f, args[4].f);
+    return 0;
+}
+
 static int native_canvas_draw_text(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JValue field;
@@ -509,6 +574,43 @@ static int native_paint_set_text_align(Runtime *rt, const JValue *args, uint32_t
     return 0;
 }
 
+static int native_paint_set_style(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue field;
+
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l) || !java_object_check(args[1].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.l = args[1].l;
+    if (java_object_set_field(args[0].l, "style", field) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "Paint.setStyle %p\n", args[1].l);
+    return 0;
+}
+
+static int native_paint_set_stroke_width(Runtime *rt, const JValue *args, uint32_t argc,
+                                        JValue *result)
+{
+    JValue field;
+
+    (void)rt;
+    (void)result;
+    if (argc < 2 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.f = args[1].f;
+    if (java_object_set_field(args[0].l, "strokeWidth", field) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "Paint.setStrokeWidth %g\n", args[1].f);
+    return 0;
+}
+
 static int native_paint_set_text_size(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     JValue field;
@@ -646,6 +748,36 @@ static int native_rectf_init(Runtime *rt, const JValue *args, uint32_t argc, JVa
     return 0;
 }
 
+static int native_rectf_set(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
+{
+    JValue field;
+
+    (void)rt;
+    (void)result;
+    if (argc < 5 || !java_object_check(args[0].l)) {
+        return -1;
+    }
+    memset(&field, 0, sizeof(field));
+    field.f = args[1].f;
+    if (java_object_set_field(args[0].l, "left", field) != 0) {
+        return -1;
+    }
+    field.f = args[2].f;
+    if (java_object_set_field(args[0].l, "top", field) != 0) {
+        return -1;
+    }
+    field.f = args[3].f;
+    if (java_object_set_field(args[0].l, "right", field) != 0) {
+        return -1;
+    }
+    field.f = args[4].f;
+    if (java_object_set_field(args[0].l, "bottom", field) != 0) {
+        return -1;
+    }
+    fprintf(stderr, "RectF.set %g %g %g %g\n", args[1].f, args[2].f, args[3].f, args[4].f);
+    return 0;
+}
+
 static int native_set_click_listener(Runtime *rt, const JValue *args, uint32_t argc, JValue *result)
 {
     (void)rt;
@@ -684,6 +816,10 @@ int native_register_widget(Runtime *rt)
         {"Landroid/graphics/Canvas;", "getHeight", "()I", native_canvas_get_height},
         {"Landroid/graphics/Canvas;", "drawRect", "(FFFFLandroid/graphics/Paint;)V",
          native_canvas_draw_rect},
+        {"Landroid/graphics/Canvas;", "drawRoundRect",
+         "(Landroid/graphics/RectF;FFLandroid/graphics/Paint;)V", native_canvas_draw_round_rect},
+        {"Landroid/graphics/Canvas;", "drawLine", "(FFFFLandroid/graphics/Paint;)V",
+         native_canvas_draw_line},
         {"Landroid/graphics/Canvas;", "drawText", "(Ljava/lang/String;FFLandroid/graphics/Paint;)V",
          native_canvas_draw_text},
         {"Landroid/view/Surface;", "isValid", "()Z", native_surface_is_valid},
@@ -696,6 +832,9 @@ int native_register_widget(Runtime *rt)
          native_paint_set_shader},
         {"Landroid/graphics/Paint;", "setTextAlign", "(Landroid/graphics/Paint$Align;)V",
          native_paint_set_text_align},
+        {"Landroid/graphics/Paint;", "setStyle", "(Landroid/graphics/Paint$Style;)V",
+         native_paint_set_style},
+        {"Landroid/graphics/Paint;", "setStrokeWidth", "(F)V", native_paint_set_stroke_width},
         {"Landroid/graphics/Paint;", "setTextSize", "(F)V", native_paint_set_text_size},
         {"Landroid/graphics/Paint;", "setColor", "(I)V", native_paint_set_color},
         {"Landroid/graphics/Paint;", "setAlpha", "(I)V", native_paint_set_alpha},
@@ -704,6 +843,7 @@ int native_register_widget(Runtime *rt)
         {"Landroid/graphics/LinearGradient;", "<init>",
          "(FFFFIILandroid/graphics/Shader$TileMode;)V", native_linear_gradient_init},
         {"Landroid/graphics/RectF;", "<init>", "()V", native_rectf_init},
+        {"Landroid/graphics/RectF;", "set", "(FFFF)V", native_rectf_set},
     };
 
     return native_bind(rt, rows, sizeof(rows) / sizeof(rows[0]));
