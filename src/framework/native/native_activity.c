@@ -164,6 +164,11 @@ static int native_get_application_context(Runtime *rt, const JValue *args, uint3
     return 0;
 }
 
+const Apk *native_activity_apk(void)
+{
+    return current_apk;
+}
+
 void native_activity_prepare(const Apk *apk, Runtime *rt)
 {
     current_apk = apk;

@@ -105,6 +105,10 @@ int activity_thread_launch(Runtime *rt, LoadedApk *loaded)
         goto out;
     }
     native_activity_prepare(apk, rt);
+    if (runtime_initialize_class(rt, descriptor) != 0) {
+        fprintf(stderr, "failed to initialize %s\n", launcher);
+        goto out;
+    }
     activity = java_object_new(rt, descriptor);
     if (activity == NULL) {
         goto out;

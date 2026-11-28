@@ -27,5 +27,6 @@ int native_register_widget(Runtime *rt);
 int native_register_media(Runtime *rt);
 int native_register_string(Runtime *rt);
 int native_register_math(Runtime *rt);
+const Apk *native_activity_apk(void);
 
 #endif
